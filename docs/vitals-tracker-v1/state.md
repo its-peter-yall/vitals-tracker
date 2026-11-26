@@ -62,7 +62,7 @@ delegation:
 - [x] Step 1: Brainstorming & Goal Alignment (`docs/vitals-tracker-v1/goal.md`; `c09da44`)
 - [x] Step 2: Technical Research (`docs/vitals-tracker-v1/research.md`; `c201c69`)
 - [ ] Step 3: Planning Completed (all plans `plan1.md`–`plan9.md` written and committed)
-- [#] Step 4: Execution In Progress (P1 complete and verified; P2–P9 pending)
+- [#] Step 4: Execution In Progress (P1–P6 complete and verified; P7–P9 pending)
 - [x] Step 5: Unified Code Review (Skipped via `--skip review`)
 - [ ] Step 6: Final Verification & Report (`docs/vitals-tracker-v1/final_report.md`)
 
@@ -108,7 +108,7 @@ This is the research-reconciled DAG (`dag_status: research-reconciled`, research
 | **P2** | Lightweight Auth, Persistent Sessions & User Settings | P1 | `src/lib/auth/*`, `src/app/api/auth/**`, `src/app/api/settings/route.ts`, `src/app/(auth)/login/page.tsx`, `src/app/(auth)/signup/page.tsx`, `src/app/settings/page.tsx`, `tests/auth.test.ts` | [x] `537de94` | [x] Complete | `979647d`, `3542f65`, `ba09ac6`, `301e5fa` (shared), `69993e5`, `2b5c839`, `6f37158` |
 | **P3** | Canonical Nutrient Catalog, Scaling Math & Condition Impact Engine | P1 | `src/lib/nutrients/*`, `src/lib/impact/*`, `tests/nutrients.test.ts`, `tests/impact-engine.test.ts` | [x] `04975e6` | [x] Complete | `dacffe6`, `4afe41d`, `7ca0438`, `3d1d602`, `301e5fa` (shared) |
 | **P4** | Curated Food Catalog & Hybrid Food Resolver API | P2, P3 | `src/db/seed-foods.ts`, `src/lib/foods/*`, `src/app/api/foods/**`, `tests/food-resolver.test.ts` | [x] `74d09bd` | [x] Complete | `93afb17`, `4132493`, `73ef8e0`, `b79da51`, `c7b44d9`, `25e7a3d`, `8654ec2`, `c17693e` |
-| **P5** | Curated Medicines, OpenRouter Vision Scanner, OCR Fallback & "My Medicines" API | P2, P3 | `src/db/seed-medicines.ts`, `src/lib/medicines/*`, `src/app/api/medicines/**`, `tests/medicine-recognizer.test.ts`, `tests/medicines-api.test.ts` | [x] `03f32c0` | [ ] Pending (queued) | - |
+| **P5** | Curated Medicines, OpenRouter Vision Scanner, OCR Fallback & "My Medicines" API | P2, P3 | `src/db/seed-medicines.ts`, `src/lib/medicines/*`, `src/app/api/medicines/**`, `tests/medicine-recognizer.test.ts`, `tests/medicines-api.test.ts` | [x] `03f32c0` | [x] Complete | `2a7f01b`, `8d4225b`, `f46cec4`, `44b545b`, `67c9716`, `81a172f`, `3a731dc`, `63df95a` |
 | **P6** | Trackers CRUD, Intake Logs, Daily Summary & Analytics API | P2, P3 | `src/lib/trackers/*`, `src/lib/analytics/*`, `src/app/api/trackers/**`, `tests/trackers-api.test.ts`, `tests/analytics.test.ts` | [x] `87393e9` | [x] Complete | `7ee795d`, `849eca1`, `0db6346`, `69199b9`, `a372e4a`, `cf47f91`, `44f0a1b`, `27890dd` |
 | **P7** | Trackers Home, Guided Wizard, Daily View, Food/Medicine Logging & Confirm Card UI | P4, P5, P6 | `src/app/page.tsx`, `src/app/trackers/new/page.tsx`, `src/app/trackers/[id]/layout.tsx`, `src/app/trackers/[id]/page.tsx`, `src/components/wizard/*`, `src/components/trackers/*`, `src/components/logging/*`, `tests/tracker-ui.test.tsx` | [ ] Pending | [ ] Pending | - |
 | **P8** | Per-Tracker Analytics Page UI (`7d` / `30d` Dual-Chromatic Charts & Insights) | P6 | `src/app/trackers/[id]/analytics/page.tsx`, `src/components/analytics/*`, `tests/analytics-ui.test.tsx` | [ ] Pending | [ ] Pending | - |
@@ -222,6 +222,7 @@ flowchart TD
 - `tests/medicine-recognizer.test.ts`, `tests/medicines-api.test.ts`  
 **Scope:** Implement strict image validation (`image/jpeg`, `image/png`, `image/webp`, ≤ 2 MB, processed strictly in-memory with zero disk writes), OpenRouter Vision structured extraction (brand/generic name, `supplement` | `prescription` | `both`, per-dose vitamin/mineral map, plain-language food/nutrient notes, confidence level), optional Tesseract.js OCR fallback + catalog matching, never auto-logging scan results, and authenticated CRUD for the user's **My Medicines** cabinet (`GET/POST /api/medicines`, `PATCH/DELETE /api/medicines/[id]`).  
 **Plan contract notes (`plan5.md`, `03f32c0`):** scan is authenticated and in-memory; it returns a draft or recovery actions with `requiresConfirmation: true` and never saves a medicine or logs intake. Confidence is high ≥0.85, medium ≥0.60, otherwise low; incomplete drafts are capped at low. OCR is an explicit `?mode=ocr` retry through a pluggable Tesseract provider with no disk cache; catalog matches are low confidence and never supply a dose or nutrient amount. Cold-start OCR failure falls back to manual entry.  
+**Worker result:** 18/18 medicine tests, typecheck pass, `npm test` 93/93, build/lint pass. All commits touch only the eight P5-owned files; no deviations.  
 **Exit gate:** `npx vitest run tests/medicine-recognizer.test.ts tests/medicines-api.test.ts` passes, verifying MIME/size rejection, valid/partial/low-confidence/malformed OpenRouter fixtures, OCR fallback behavior, and strict user-isolated "My Medicines" CRUD.
 
 ### P6 — Trackers CRUD, Intake Logs, Daily Summary & Analytics API
@@ -318,6 +319,7 @@ flowchart TD
 | P2 implementation (auth, sessions, settings) | Complete; gate verified | `979647d`, `3542f65`, `ba09ac6`, `301e5fa` (shared), `69993e5`, `2b5c839`, `6f37158` |
 | P3 implementation (nutrients, calculator, impact engine) | Complete; gate verified | `dacffe6`, `4afe41d`, `7ca0438`, `3d1d602`, `301e5fa` (shared) |
 | P4 implementation (food catalog and resolver) | Complete; gate verified | `93afb17`, `4132493`, `73ef8e0`, `b79da51`, `c7b44d9`, `25e7a3d`, `8654ec2`, `c17693e` |
+| P5 implementation (medicines, vision, OCR, cabinet) | Complete; gate verified | `2a7f01b`, `8d4225b`, `f46cec4`, `44b545b`, `67c9716`, `81a172f`, `3a731dc`, `63df95a` |
 | P6 implementation (trackers, logs, summary, analytics) | Complete; gate verified | `7ee795d`, `849eca1`, `0db6346`, `69199b9`, `a372e4a`, `cf47f91`, `44f0a1b`, `27890dd` |
 | `docs/vitals-tracker-v1/plan2.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `537de94` |
 | `docs/vitals-tracker-v1/plan3.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `04975e6` |
@@ -330,7 +332,7 @@ flowchart TD
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: P4 COMPLETE — P5 WORKER DISPATCHING; MANUAL P7/P8 PLANNER HANDOFFS AWAITING USER**
+**CURRENT GATE: P1–P6 COMPLETE — WAITING FOR MANUAL P7/P8 PLANS (H-P7-PLAN, H-P8-PLAN); NO READY WORK**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
