@@ -414,3 +414,55 @@ it("skips missing AI and USDA keys, and rejects malformed AI nutrient drafts", a
   expect(await db.select().from(foods)).toEqual([]);
   expect(await db.select().from(intakeLogs)).toEqual([]);
 });
+
+it("caches confirmed profiles idempotently per user, without writing intake logs", async () => {
+  const { POST: save } = await import("@/app/api/foods/route");
+  const { POST: resolve } = await import("@/app/api/foods/resolve/route");
+  const { GET: search } = await import("@/app/api/foods/search/route");
+  const request = (body: unknown) => postFoodRequest("/api/foods", body);
+  const input = {
+    name: " Savory–Pudding ", aliases: ["family pudding"], defaultUnit: "g",
+    nutrientsPer100: { protein: 4, sodium: 190 }, source: "ai_confirmed", confirmed: true,
+  };
+  expect((await save(request({}))).status).toBe(401);
+  const { db, alice, bob, b } = await setupFoodRoutes();
+  for (const body of [
+    { ...input, userId: bob.id }, { ...input, source: "curated" }, { ...input, confirmed: false },
+    { ...input, nutrientsPer100: { salt: 1 } },
+  ]) expect((await save(request(body))).status).toBe(400);
+  expect((await save(new Request(`${site}/api/foods`, {
+    method: "POST", headers: { "Content-Type": "text/plain" }, body: JSON.stringify(input),
+  }))).status).toBe(400);
+  expect(await db.select().from(foods)).toEqual([]);
+
+  const result = await save(request(input));
+  expect(result.status).toBe(201);
+  expect(result.headers.get("Cache-Control")).toBe("no-store");
+  const { food } = await result.json();
+  expect(food).toEqual({
+    id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/),
+    name: "Savory–Pudding", defaultUnit: "g", aliases: ["family pudding"],
+    nutrientsPer100: { protein: 4, sodium: 190 }, source: "ai_confirmed", estimated: true,
+  });
+  const replay = await save(request({ ...input, name: "savory pudding", nutrientsPer100: { protein: 99 } }));
+  expect(replay.status).toBe(200);
+  expect(await replay.json()).toEqual({ food });
+  expect(await (await resolve(postFoodRequest(resolvePath, { query: "family pudding" }))).json())
+    .toEqual({ kind: "saved", food });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(await (await search(searchRequest("savory pudding"))).json()).toEqual({ foods: [food] });
+
+  token = b.token;
+  expect(await (await search(searchRequest("family pudding"))).json()).toEqual({ foods: [] });
+  expect((await resolve(postFoodRequest(resolvePath, { query: "family pudding" }))).status).toBe(404);
+  const other = await save(request({ ...input, name: "Savory pudding", source: "manual" }));
+  expect(other.status).toBe(201);
+  const otherFood = (await other.json()).food;
+  expect(otherFood).toMatchObject({ estimated: false, source: "manual" });
+  expect(otherFood.id).not.toBe(food.id);
+  expect(await db.select({ id: foods.id, owner: foods.userId }).from(foods)).toEqual(expect.arrayContaining([
+    { id: food.id, owner: alice.id }, { id: otherFood.id, owner: bob.id },
+  ]));
+  expect(await db.select().from(foods)).toHaveLength(2);
+  expect(await db.select().from(intakeLogs)).toEqual([]);
+});

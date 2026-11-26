@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { and, asc, desc, eq, isNull, max, or } from "drizzle-orm";
 import * as z from "zod";
 import type { Db } from "@/db";
@@ -8,6 +9,7 @@ import { completeJson, OpenRouterError } from "@/lib/openrouter/client";
 import { lookupOpenFoodFacts, lookupUsdaFood } from "./open-api";
 import {
   lookupAliases, normalizeFoodText, foodProfileSchema, type ResolveFoodResult, type SavedFood,
+  type SaveFoodInput,
 } from "./schemas";
 
 type FoodRow = typeof foods.$inferSelect;
@@ -130,4 +132,21 @@ export async function resolveFood(db: Db, userId: string, query: string): Promis
       error: "Food estimates are unavailable right now. Try again or enter the food manually.",
     };
   }
+}
+
+export async function saveConfirmedFood(db: Db, userId: string, input: SaveFoodInput) {
+  const digest = createHash("sha256")
+    .update(JSON.stringify(["vitals-confirmed-food-v1", userId, normalizeFoodText(input.name), input.defaultUnit]))
+    .digest("hex");
+  // UUIDv8 with RFC variant, suitable for use as a foodId in intake logs.
+  const id = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-8${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+  const [inserted] = await db.insert(foods).values({
+    id, userId, name: input.name, aliasesJson: input.aliases, defaultUnit: input.defaultUnit,
+    nutrientsPer100Json: input.nutrientsPer100, source: input.source, createdAt: new Date().toISOString(),
+  }).onConflictDoNothing({ target: foods.id }).returning();
+  if (inserted) return { created: true, food: publicFood(inserted) };
+
+  const [existing] = await db.select().from(foods).where(and(eq(foods.id, id), eq(foods.userId, userId))).limit(1);
+  if (!existing) throw new Error("Confirmed food ID conflict");
+  return { created: false, food: publicFood(existing) };
 }
