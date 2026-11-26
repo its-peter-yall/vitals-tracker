@@ -1,5 +1,5 @@
 const prefix = "vitals-tracker-static-";
-const version = `${prefix}v1`;
+const version = `${prefix}v2`;
 const installAssets = new Set([
   "/manifest.json", "/icons/icon-192.png", "/icons/icon-512.png",
   "/icons/maskable-512.png", "/icons/apple-touch-icon.png",
