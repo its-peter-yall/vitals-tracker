@@ -937,7 +937,7 @@ describe("Task 9: Trackers Home dashboard", () => {
 
     expect(await screen.findByText("Amma's Daily Care")).toBeInTheDocument();
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
-    expect(screen.getByRole("link", { name: /\+ new tracker/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "New Tracker" })).toHaveAttribute(
       "href",
       "/trackers/new",
     );

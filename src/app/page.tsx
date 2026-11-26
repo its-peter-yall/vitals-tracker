@@ -174,7 +174,7 @@ export default function TrackersHomePage() {
             className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-primary px-4 font-semibold text-primary-fg"
           >
             <Plus className="h-5 w-5" aria-hidden="true" />
-            <span>+ New Tracker</span>
+            <span>New Tracker</span>
           </Link>
         </div>
       </div>
