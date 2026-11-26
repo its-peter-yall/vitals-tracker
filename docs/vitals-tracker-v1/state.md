@@ -17,12 +17,13 @@ delegation:
   enforcement: verified
   roles:
     researcher: { mode: automatic, model: "xai/grok-4.6#xhigh", effort: "xhigh", model_scope: id }
-    planner: { mode: automatic, model: "openai/gpt-6.2-sol#xhigh", effort: "xhigh", model_scope: id }
+    planner: { mode: manual, model: null, effort: null, model_scope: id }
     worker: { mode: harness-default, model: null, effort: null, model_scope: id }
   plan_overrides:
     planner:
       P7: { mode: manual, model: null, effort: null, scope: "frontend" }
       P8: { mode: manual, model: null, effort: null, scope: "frontend" }
+      P9: { mode: manual, model: null, effort: null, scope: "integration" }
 ---
 
 # State & Dependency Graph: Vitals & Nutrient Care Tracker (`vitals-tracker-v1`)
@@ -34,7 +35,7 @@ delegation:
 - Create no unnecessary directories; reuse standard Next.js App Router (`src/`) and `tests/` directories.
 - Skipped phases declared: `--skip review` (Step 5 Unified Code Review is bypassed per user request).
 - Mandatory phases: Brainstorming, planning, worker execution, and final verification remain required.
-- Current authorization: **RESUMED** via `/resume` on 2026-11-26; goal and initial DAG accepted. Role preflight and Step 2 research are complete; P1 planning is ready.
+- Current authorization: **RESUMED** via `/resume` on 2026-11-26; goal and initial DAG accepted. Role preflight, research, and P1–P6 execution are complete. Remaining planning (P7–P9) is **manual** because the GPT-6.2 Sol planner quota is exhausted.
 - File preservation rules: Keep `.env.local` (if created by the user for Turso/OpenRouter secrets) strictly untracked in `.gitignore`; never commit API keys or local SQLite database files.
 - Worker context policy (2026-11-26): from the next worker dispatch onward, keep the prompt minimal — plan path, owned files, exit gate, working directory, and TDD/commit/safety rules only. Do not include `research.md`, the full `goal.md`, or a research summary; the planner has already encoded the needed contracts into the plan. Planners still receive `goal.md`, `research.md`, and `state.md` scope.
 
@@ -44,18 +45,19 @@ delegation:
 - Capability evidence: The exposed `subagent` schema accepts `model` (`providerID/modelID` or `providerID/modelID#variant`) and `agent`. `opencode models` enumerates the live provider/model catalog; model metadata in `~/.cache/opencode/models.json` advertises reasoning options where available. There is no separate effort parameter; effort is encoded as the optional `#variant` suffix. Antigravity's `invoke_subagent` is not available in this session, so the persisted Antigravity tier plan was replaced.
 - Selection order: Researcher → Planner → Worker.
   - **Researcher:** `xai/grok-4.6#xhigh` (vendor-native Grok 4.6 with extra-high reasoning; Grok 4.6 advertises `low | medium | high | xhigh`).
-  - **Planner:** `openai/gpt-6.2-sol#xhigh` for backend/foundation plans P1–P6 and P9. The user explicitly split planning by frontend/backend and chose a **manual handoff** for the frontend planner on P7 and P8; no frontend planner subagent will be spawned, and those prompts are emitted only when P7/P8 planning prerequisites are met.
+  - **Planner:** **manual for all remaining plans (P7, P8, P9)**. GPT-6.2 Sol (`openai/gpt-6.2-sol#xhigh`) completed the P1–P6 plans and then hit its usage quota; on 2026-11-26 the user directed the remaining planning to manual handoffs. No automatic planner subagent will be spawned. P7/P8 are frontend plans; P9 is the integration/final-verification plan and its prompt is gated on the P7/P8 plan commits.
   - **Worker:** `harness-default` for both backend/foundation (P1–P6, P9) and frontend (P7–P8); no model override is passed.
   - The earlier harness-default entry was a mistake caused by treating the user's selection as a duplicate prompt answer; it has been corrected.
-- Enforcement: **verified** for the researcher. The child session `ses_de9059acfffeuf1f38zpstQ1Y7` recorded `{"id":"grok-4.6","providerID":"xai","variant":"xhigh"}` in the OpenCode session database. Planner and worker dispatches still need their own enforcement checks.
+- Enforcement: **verified** for the researcher. The child session `ses_de9059acfffeuf1f38zpstQ1Y7` recorded `{"id":"grok-4.6","providerID":"xai","variant":"xhigh"}` in the OpenCode session database. The planner is now manual, so there is no automatic planner model to enforce; worker dispatches are harness-default and are checked as they run.
 - Reviewer/fixer: Skipped (`--skip review`); not part of role selection.
 
 | Handoff ID | Role | Plan/phase scope | Prompt reference | Expected artifacts | Status | Returned evidence |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| H-P7-PLAN | planner (manual) | P7 frontend plan | Chat: manual frontend planner prompts, 2026-11-26 | `docs/vitals-tracker-v1/plan7.md` | awaiting-user | - |
-| H-P8-PLAN | planner (manual) | P8 frontend plan | Chat: manual frontend planner prompts, 2026-11-26 | `docs/vitals-tracker-v1/plan8.md` | awaiting-user | - |
+| H-P7-PLAN | planner (manual) | P7 frontend plan | Chat: manual planner prompts, 2026-11-26 | `docs/vitals-tracker-v1/plan7.md` | awaiting-user | - |
+| H-P8-PLAN | planner (manual) | P8 frontend plan | Chat: manual planner prompts, 2026-11-26 | `docs/vitals-tracker-v1/plan8.md` | awaiting-user | - |
+| H-P9-PLAN | planner (manual) | P9 integration plan | Chat: manual planner prompts, 2026-11-26 (gated on P7/P8) | `docs/vitals-tracker-v1/plan9.md` | prepared-gated | - |
 
-*(P7/P8 planning prerequisites are met: P4/P5/P6 plans are committed. The frontend planner is manual by user choice; no frontend planner subagent will be spawned. Pending handoffs block their dependents, not independent work. P8's worker can start once `plan8.md` is returned and verified; P7's worker additionally waits for P4/P5 workers.)*
+*(P7/P8 planning prerequisites are met: P4/P5/P6 plans are committed. All remaining planning is manual because the GPT planner quota is exhausted; no planner subagent will be spawned. Pending handoffs block their dependents, not independent work. P8's worker can start once `plan8.md` is returned and verified; P7's worker additionally waits for P4/P5 workers. The P9 prompt is prepared but not active until `plan7.md` and `plan8.md` are verified.)*
 
 ## Workflow milestones
 
@@ -332,12 +334,12 @@ flowchart TD
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: P1–P6 COMPLETE — WAITING FOR MANUAL P7/P8 PLANS (H-P7-PLAN, H-P8-PLAN); NO READY WORK**
+**CURRENT GATE: P1–P6 COMPLETE — MANUAL P7/P8 PLANS PENDING; P9 PROMPT PREPARED & GATED (H-P7-PLAN, H-P8-PLAN, H-P9-PLAN)**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
-2. [x] Run MAW Section 1.2 sequential role model selection preflight (**Researcher → Planner → Worker**, OpenCode `provider/model[#variant]` IDs or `none`) and persist `setup_status: complete` + `resume_gate: authorized`. Researcher = `xai/grok-4.6#xhigh`; backend planner = `openai/gpt-6.2-sol#xhigh`; frontend planner (P7–P8) = manual handoff; worker = harness-default.
+2. [x] Run MAW Section 1.2 sequential role model selection preflight (**Researcher → Planner → Worker**, OpenCode `provider/model[#variant]` IDs or `none`) and persist `setup_status: complete` + `resume_gate: authorized`. Researcher = `xai/grok-4.6#xhigh`; planner = manual for P7–P9 (GPT-6.2 Sol quota exhausted after P1–P6); worker = harness-default.
 3. [x] Re-dispatch Step 2 Technical Researcher subagent with `xai/grok-4.6#xhigh` (`docs/vitals-tracker-v1/research.md`), reconcile DAG if needed, and update `dag_status: research-reconciled`.
-4. [#] Execute MAW pipelined DAG loop (`P1` → `P2`‖`P3` → `P4`‖`P5`‖`P6` → `P7`‖`P8` → `P9`): spawn ready planners in foreground parallel, never read `research.md`/`plan*.md` into orchestrator context, pipeline ready workers immediately, and serialize git commits. P1–P6 are complete and verified; waiting for the manual P7/P8 plan handoffs (H-P7-PLAN, H-P8-PLAN), then P9 planning/worker.
+4. [#] Execute MAW pipelined DAG loop (`P1` → `P2`‖`P3` → `P4`‖`P5`‖`P6` → `P7`‖`P8` → `P9`): spawn ready planners in foreground parallel, never read `research.md`/`plan*.md` into orchestrator context, pipeline ready workers immediately, and serialize git commits. P1–P6 are complete and verified; waiting for the manual P7/P8 plan handoffs (H-P7-PLAN, H-P8-PLAN). The P9 prompt is prepared but gated on those plans (H-P9-PLAN).
 5. [ ] Skip Step 5 Unified Code Review (`--skip review` recorded).
 6. [ ] Execute Step 6 Final Verification (`npm test`, `npm run typecheck`, `npm run lint`, `npm run build`), write and commit `docs/vitals-tracker-v1/final_report.md`, and set `status: complete`.
