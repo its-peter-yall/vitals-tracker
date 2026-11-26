@@ -13,6 +13,15 @@ if not exist ".env.local" (
   echo.
 )
 
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $r=Invoke-WebRequest -UseBasicParsing -Uri 'http://localhost:3000' -TimeoutSec 3; if($r.StatusCode -ge 200 -and $r.StatusCode -lt 400 -and $r.Content -match 'Vitals Tracker'){ exit 0 } } catch {}; exit 1"
+if not errorlevel 1 (
+  echo Vitals Tracker is already running.
+  start "" "http://localhost:3000"
+  echo Opened http://localhost:3000 in your browser.
+  ping -n 3 127.0.0.1 >nul
+  exit /b 0
+)
+
 echo Starting Vitals Tracker on http://localhost:3000 ...
 start "Vitals Tracker Server" cmd /k "npm run dev -- -p 3000"
 
