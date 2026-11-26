@@ -1,0 +1,15 @@
+/node_modules/
+/.next/
+/out/
+/coverage/
+/next-env.d.ts
+*.tsbuildinfo
+.env*
+!.env.example
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.log
