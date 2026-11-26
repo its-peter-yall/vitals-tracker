@@ -313,3 +313,204 @@ describe("Task 5: client-side medicine image compression", () => {
     expect(compressed.size).toBeLessThanOrEqual(400_000);
   });
 });
+
+describe("Task 6: food logging modal", () => {
+  const trackerNutrients = [
+    {
+      nutrientKey: "protein" as const,
+      label: "Protein",
+      unit: "g" as const,
+      dailyTarget: 50,
+      isCustomTarget: false,
+      sortOrder: 0,
+      targetKind: "goal" as const,
+    },
+    {
+      nutrientKey: "totalSugars" as const,
+      label: "Total Sugars",
+      unit: "g" as const,
+      dailyTarget: 35,
+      isCustomTarget: false,
+      sortOrder: 1,
+      targetKind: "upper" as const,
+    },
+  ];
+
+  it("shows recent foods, updates live nutrient preview across presets and g/ml, and logs food", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url.startsWith("/api/foods/search")) {
+        return Response.json({
+          foods: [
+            {
+              id: "food-milk",
+              name: "Whole cow's milk",
+              aliases: ["milk", "doodh"],
+              defaultUnit: "ml",
+              nutrientsPer100: { protein: 3.2, totalSugars: 5, calcium: 113 },
+              source: "curated",
+              estimated: false,
+            },
+          ],
+        });
+      }
+      if (url === "/api/trackers/t-1/logs" && init?.method === "POST") {
+        return Response.json(
+          {
+            log: {
+              id: "log-new",
+              trackerId: "t-1",
+              logDate: "2026-11-26",
+              loggedAt: "2026-11-26T09:00:00.000Z",
+              entryType: "food",
+              foodId: "food-milk",
+              medicineId: null,
+              displayName: "Whole cow's milk",
+              quantity: 250,
+              unit: "ml",
+              computedNutrientsJson: { protein: 8, totalSugars: 12.5 },
+              medicineNotes: null,
+            },
+          },
+          { status: 201 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onLogged = vi.fn();
+    const { FoodLogModal } = await import("@/components/logging/food-log-modal");
+    render(
+      <FoodLogModal
+        trackerId="t-1"
+        logDate="2026-11-26"
+        trackerNutrients={trackerNutrients}
+        onClose={vi.fn()}
+        onLogged={onLogged}
+      />,
+    );
+
+    const foodButton = await screen.findByRole("button", { name: /whole cow's milk/i });
+    fireEvent.click(foodButton);
+
+    // Default quantity 100 ml -> Protein 3.2 g, Total Sugars 5 g; Calcium is NOT selected so hidden
+    expect(screen.getByText("3.2 g")).toBeInTheDocument();
+    expect(screen.getByText("5 g")).toBeInTheDocument();
+    expect(screen.queryByText(/calcium/i)).not.toBeInTheDocument();
+
+    // Tap 250 preset -> Protein 8 g, Total Sugars 12.5 g
+    fireEvent.click(screen.getByRole("button", { name: "250 ml" }));
+    expect(screen.getByText("8 g")).toBeInTheDocument();
+    expect(screen.getByText("12.5 g")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /save food/i }));
+    await waitFor(() => expect(onLogged).toHaveBeenCalledOnce());
+
+    const postCall = fetchMock.mock.calls.find(([u]) => u === "/api/trackers/t-1/logs");
+    expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({
+      entryType: "food",
+      foodId: "food-milk",
+      quantity: 250,
+      unit: "ml",
+      logDate: "2026-11-26",
+    });
+  });
+
+  it("resolves AI Estimated food draft, requires explicit confirmation, caches via POST /api/foods, then logs", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url.startsWith("/api/foods/search")) {
+        return Response.json({ foods: [] });
+      }
+      if (url === "/api/foods/resolve" && init?.method === "POST") {
+        return Response.json({
+          kind: "draft",
+          draft: {
+            name: "Homemade Pongal",
+            aliases: ["pongal"],
+            defaultUnit: "g",
+            nutrientsPer100: { protein: 4.5, totalSugars: 1.2 },
+            provider: "openrouter",
+            label: "Estimated",
+            estimated: true,
+          },
+        });
+      }
+      if (url === "/api/foods" && init?.method === "POST") {
+        return Response.json(
+          {
+            food: {
+              id: "food-ai-1",
+              name: "Homemade Pongal",
+              aliases: ["pongal"],
+              defaultUnit: "g",
+              nutrientsPer100: { protein: 4.5, totalSugars: 1.2 },
+              source: "ai_confirmed",
+              estimated: true,
+            },
+          },
+          { status: 201 },
+        );
+      }
+      if (url === "/api/trackers/t-1/logs" && init?.method === "POST") {
+        return Response.json(
+          {
+            log: {
+              id: "log-ai",
+              trackerId: "t-1",
+              logDate: "2026-11-26",
+              loggedAt: "2026-11-26T09:10:00.000Z",
+              entryType: "food",
+              foodId: "food-ai-1",
+              medicineId: null,
+              displayName: "Homemade Pongal",
+              quantity: 150,
+              unit: "g",
+              computedNutrientsJson: { protein: 6.75, totalSugars: 1.8 },
+              medicineNotes: null,
+            },
+          },
+          { status: 201 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onLogged = vi.fn();
+    const { FoodLogModal } = await import("@/components/logging/food-log-modal");
+    render(
+      <FoodLogModal
+        trackerId="t-1"
+        logDate="2026-11-26"
+        trackerNutrients={trackerNutrients}
+        onClose={vi.fn()}
+        onLogged={onLogged}
+      />,
+    );
+
+    const searchInput = screen.getByLabelText(/search food/i);
+    fireEvent.change(searchInput, { target: { value: "pongal" } });
+    fireEvent.click(screen.getByRole("button", { name: /search online \/ ai estimate/i }));
+
+    expect(await screen.findByText("Homemade Pongal")).toBeInTheDocument();
+    expect(screen.getByText("Estimated")).toBeInTheDocument();
+    // Resolve must never auto-save or auto-log
+    expect(fetchMock.mock.calls.some(([u]) => u === "/api/foods")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "150 g" }));
+    fireEvent.click(screen.getByRole("button", { name: /confirm & save food/i }));
+
+    await waitFor(() => expect(onLogged).toHaveBeenCalledOnce());
+    const saveFoodCall = fetchMock.mock.calls.find(([u]) => u === "/api/foods");
+    expect(JSON.parse(String(saveFoodCall?.[1]?.body))).toEqual({
+      confirmed: true,
+      source: "ai_confirmed",
+      name: "Homemade Pongal",
+      aliases: ["pongal"],
+      defaultUnit: "g",
+      nutrientsPer100: { protein: 4.5, totalSugars: 1.2 },
+    });
+  });
+});
