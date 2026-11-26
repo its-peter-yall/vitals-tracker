@@ -100,3 +100,66 @@ it("returns uncached 401 for absent, malformed, or unknown session cookies", asy
     expect(await response.json()).toEqual({ error: "Please sign in." });
   }
 });
+
+function jsonRequest(path: string, body: unknown, method = "POST") {
+  return new Request(`https://app.example.test${path}`, {
+    method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+}
+
+const credentials = { email: "care@example.test", password: "daily care notes" };
+const registration = { ...credentials, name: "Care" };
+
+it("signs up with normalized email, stores only hashes, and rejects duplicate email", async () => {
+  const { POST } = await import("@/app/api/auth/signup/route");
+  const path = "/api/auth/signup";
+  const response = await POST(jsonRequest(path, { ...registration, email: " Care@Example.Test ", name: " Care " }));
+  expect(response.status).toBe(201);
+  const db = fixture!.db;
+  const [user] = await db.select().from(users);
+  const [session] = await db.select().from(sessions);
+  expect(await response.json()).toEqual({
+    user: { id: user.id, email: credentials.email, name: "Care", theme: "system", visionModel: null },
+  });
+  expect(user.passwordHash).toMatch(/^[a-f0-9]{32}:[a-f0-9]{128}$/);
+  expect(session).toMatchObject({ userId: user.id, tokenHash: digest(jar.get(expectedCookie)!) });
+  expect((await POST(jsonRequest(path, registration))).status).toBe(409);
+  expect(await db.select().from(users)).toHaveLength(1);
+  expect(await db.select().from(sessions)).toHaveLength(1);
+  expect(setCookie).toHaveBeenCalledOnce();
+});
+
+it("rejects invalid signup JSON, unexpected fields, short passwords, and form media types", async () => {
+  const { POST } = await import("@/app/api/auth/signup/route");
+  const path = "/api/auth/signup";
+  for (const body of [
+    { ...registration, email: "not an email" },
+    { ...registration, name: "" },
+    { ...registration, password: "short" },
+    { ...registration, theme: "dark" },
+  ]) {
+    expect((await POST(jsonRequest(path, body))).status).toBe(400);
+  }
+  const url = `https://app.example.test${path}`;
+  for (const [type, body] of [
+    ["application/json", "{"],
+    ["text/plain", JSON.stringify(registration)],
+  ]) {
+    expect((await POST(new Request(url, { method: "POST", headers: { "Content-Type": type }, body }))).status).toBe(400);
+  }
+  expect(await fixture!.db.select().from(users)).toEqual([]);
+  expect(setCookie).not.toHaveBeenCalled();
+});
+
+it("rolls back signup if the session insert fails", async () => {
+  const { POST } = await import("@/app/api/auth/signup/route");
+  await fixture!.client.execute(`
+    CREATE TRIGGER refuse_session BEFORE INSERT ON sessions
+    BEGIN SELECT RAISE(ABORT, 'session fixture failure'); END
+  `);
+  const response = await POST(jsonRequest("/api/auth/signup", registration));
+  expect(response.status).toBe(500);
+  expect(await response.json()).toEqual({ error: "Could not create your account. Try again." });
+  expect(await fixture!.db.select().from(users)).toEqual([]);
+  expect(setCookie).not.toHaveBeenCalled();
+});
