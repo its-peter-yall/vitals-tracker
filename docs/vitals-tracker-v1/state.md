@@ -6,7 +6,7 @@ status: in-progress
 skipped_phases: [review]
 source: conversation (brainstorming session 2026-11-26)
 goal_status: approved
-dag_status: initial
+dag_status: research-reconciled
 resume_gate: authorized
 delegation:
   harness: opencode
@@ -14,7 +14,7 @@ delegation:
   model_selection: supported
   effort_control: supported
   setup_status: complete
-  enforcement: unverified
+  enforcement: verified
   roles:
     researcher: { mode: automatic, model: "xai/grok-4.6#xhigh", effort: "xhigh", model_scope: id }
     planner: { mode: automatic, model: "openai/gpt-6.2-sol#xhigh", effort: "xhigh", model_scope: id }
@@ -34,7 +34,7 @@ delegation:
 - Create no unnecessary directories; reuse standard Next.js App Router (`src/`) and `tests/` directories.
 - Skipped phases declared: `--skip review` (Step 5 Unified Code Review is bypassed per user request).
 - Mandatory phases: Brainstorming, planning, worker execution, and final verification remain required.
-- Current authorization: **RESUMED** via `/resume` on 2026-11-26; goal and initial DAG accepted. Complete the role-model preflight, then dispatch research.
+- Current authorization: **RESUMED** via `/resume` on 2026-11-26; goal and initial DAG accepted. Role preflight and Step 2 research are complete; P1 planning is ready.
 - File preservation rules: Keep `.env.local` (if created by the user for Turso/OpenRouter secrets) strictly untracked in `.gitignore`; never commit API keys or local SQLite database files.
 
 ## Delegation configuration & handoffs
@@ -46,7 +46,7 @@ delegation:
   - **Planner:** `openai/gpt-6.2-sol#xhigh` for backend/foundation plans P1–P6 and P9. The user explicitly split planning by frontend/backend and chose a **manual handoff** for the frontend planner on P7 and P8; no frontend planner subagent will be spawned, and those prompts are emitted only when P7/P8 planning prerequisites are met.
   - **Worker:** `harness-default` for both backend/foundation (P1–P6, P9) and frontend (P7–P8); no model override is passed.
   - The earlier harness-default entry was a mistake caused by treating the user's selection as a duplicate prompt answer; it has been corrected.
-- Enforcement: `unverified` (no subagent has completed yet). The first automatic dispatch must use `model: xai/grok-4.6#xhigh`; verify the child actually ran on Grok 4.6 with `xhigh` or record the failure.
+- Enforcement: **verified** for the researcher. The child session `ses_de9059acfffeuf1f38zpstQ1Y7` recorded `{"id":"grok-4.6","providerID":"xai","variant":"xhigh"}` in the OpenCode session database. Planner and worker dispatches still need their own enforcement checks.
 - Reviewer/fixer: Skipped (`--skip review`); not part of role selection.
 
 | Handoff ID | Role | Plan/phase scope | Prompt reference | Expected artifacts | Status | Returned evidence |
@@ -57,7 +57,7 @@ delegation:
 ## Workflow milestones
 
 - [x] Step 1: Brainstorming & Goal Alignment (`docs/vitals-tracker-v1/goal.md`; `c09da44`)
-- [ ] Step 2: Technical Research (`docs/vitals-tracker-v1/research.md`)
+- [x] Step 2: Technical Research (`docs/vitals-tracker-v1/research.md`; `c201c69`)
 - [ ] Step 3: Planning Completed (all plans `plan1.md`–`plan9.md` written and committed)
 - [ ] Step 4: Execution Completed (all workers `P1`–`P9` finished and verified)
 - [x] Step 5: Unified Code Review (Skipped via `--skip review`)
@@ -162,13 +162,13 @@ flowchart TD
 ### P1 — Project Scaffold, Drizzle/Turso Schema, OpenRouter Client & Dual-Chromatic Theme Foundation
 **Deliverable:** `plan1.md`; runnable Next.js TypeScript PWA foundation, complete Drizzle/libSQL schema (local SQLite + Turso), shared server OpenRouter HTTP client, and dual-chromatic Light/Dark design tokens.  
 **Owned files:**
-- `package.json`, `package-lock.json`, `next.config.ts`, `tsconfig.json`, `vitest.config.ts`, `drizzle.config.ts`, `.env.example`, `.gitignore`
+- `package.json`, `package-lock.json`, `next.config.ts`, `tsconfig.json`, `vitest.config.ts`, `vitest.setup.ts`, `drizzle.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `.env.example`, `.gitignore`
 - `public/manifest.json`, `public/sw.js`, `public/icons/*`
 - `src/db/index.ts`, `src/db/schema.ts`, `src/db/test-utils.ts`
-- `src/lib/openrouter/client.ts`, `src/lib/openrouter/models.ts`
+- `src/lib/env.ts`, `src/lib/openrouter/client.ts`, `src/lib/openrouter/models.ts`
 - `src/app/layout.tsx`, `src/app/globals.css`, `src/components/theme-provider.tsx`, `src/components/ui/*`
 - `tests/db-schema.test.ts`  
-**Scope:** Bootstrap Next.js App Router + Tailwind + Vitest + all planned dependencies (`drizzle-orm`, `drizzle-kit`, `@libsql/client`, `zod`, `recharts`, `lucide-react`, `tesseract.js`, `@testing-library/react`, `jsdom`) so parallel downstream plans never touch `package.json`. Implement all 7 Drizzle tables, libSQL connection helper (local `file:local.db` + Turso `libsql://`), in-memory test DB harness, server-only OpenRouter client (20s timeout, model allow-list, structured JSON extraction), PWA manifest/service worker registration, and dual-chromatic Light/Dark theme shell (`18px` base typography, `UndoToast`, accessible button/card primitives).  
+**Scope:** Bootstrap Next.js App Router + Tailwind + Vitest + all planned dependencies (`drizzle-orm`, `drizzle-kit`, `@libsql/client`, `zod`, `recharts`, `lucide-react`, `tesseract.js`, `@testing-library/react`, `jsdom`) so parallel downstream plans never touch `package.json`. **Research-reconciled pins:** Next `16.4.6`, React/React DOM `19.3.1`, TypeScript `7.0.2`, Tailwind `4.3.5`, Zod `4.6.7`, Drizzle ORM `0.45.4`, drizzle-kit `0.31.11`, `@libsql/client` `0.18.0`, Vitest `5.1.2`, ESLint `9.39.5`, `@types/node@24`; Node `>=24.15`; do not use Drizzle v1 RC or `@tursodatabase/*`. `create-next-app` refuses this non-empty repo, so scaffold the files manually. Set `serverExternalPackages: ['@libsql/client', 'libsql', 'tesseract.js']` and use the Node.js runtime. Implement all 7 Drizzle tables, libSQL connection helper (local `file:local.db` + Turso `libsql://`), in-memory test DB harness, server-only OpenRouter client (20s timeout, model allow-list, structured JSON extraction), PWA manifest/service worker registration, and dual-chromatic Light/Dark theme shell (`18px` base typography, `UndoToast`, accessible button/card primitives).  
 **Exit gate:** `npm run typecheck`, `npm run build`, and `npx vitest run tests/db-schema.test.ts` pass, proving all 7 tables migrate and round-trip cleanly in in-memory libSQL.
 
 ### P2 — Lightweight Auth, Persistent Sessions & User Settings
@@ -269,9 +269,16 @@ flowchart TD
 | **AC11:** Graceful Failure Recovery & Medical Safety Guardrails | P2, P5, P7 | P9, Final verification |
 | **AC12:** Turso/SQLite Readiness & Full Automated Verification | P1, P9 | Final verification |
 
-## Research handoff
+## Research handoff — complete (`c201c69`)
 
-*(In progress — Step 2 Technical Research was re-dispatched on 2026-11-26 with the confirmed selector `xai/grok-4.6#xhigh` (subagent session `ses_de9059acfffeuf1f38zpstQ1Y7`). Awaiting the `research.md` commit. The orchestrator will record the commit hash and a concise decisions/contracts summary here without reading `research.md`.)*
+- **Verified stack pins:** Next `16.4.6`, React/React DOM `19.3.1`, TypeScript `7.0.2`, Tailwind `4.3.5`, Zod `4.6.7`, Drizzle ORM `0.45.4`, drizzle-kit `0.31.11`, `@libsql/client` `0.18.0`, Vitest `5.1.2`, ESLint `9.39.5`, `@types/node@24`; Node `>=24.15`. No npm overrides are needed if this matrix is followed. Do not use Drizzle v1 RC or `@tursodatabase/*`.
+- **Next.js integration:** `cookies()` and dynamic route `params` are async Promises. Set `serverExternalPackages: ['@libsql/client', 'libsql', 'tesseract.js']`; use the Node.js runtime, not Edge.
+- **OpenRouter:** Chat Completions + data-URL vision + `json_schema` structured output; 20s abort. Food waterfall: saved/local → Open Food Facts (User-Agent required, 10–15 requests/min) → USDA FoodData Central (`USDA_FDC_API_KEY`, skipped when unset) → OpenRouter AI estimate.
+- **OCR:** keep `tesseract.js@7` in P1 dependencies; implement lazy server-side OCR in P5 and mock it in tests.
+- **Scaffold:** `create-next-app` refuses this non-empty repo; P1 must create the Next.js files manually.
+- **DAG reconciliation:** execution graph unchanged. P1 ownership expanded with `postcss.config.mjs`, `eslint.config.mjs`, `vitest.setup.ts`, and `src/lib/env.ts`; P1 scope now carries the exact pins above.
+- **Blockers:** none.
+- **Enforcement:** researcher child session `ses_de9059acfffeuf1f38zpstQ1Y7` ran `xai/grok-4.6` with variant `xhigh` (verified from the OpenCode session record).
 
 ## Final verification commands and evidence
 
@@ -287,20 +294,20 @@ flowchart TD
 | Artifact | State | Commit |
 | :--- | :--- | :--- |
 | `docs/vitals-tracker-v1/goal.md` | Approved | `c09da44` |
-| `docs/vitals-tracker-v1/state.md` | Initial DAG (Resumed; preflight complete) | `b65964f` + `5b18c8d` + current update |
-| `docs/vitals-tracker-v1/research.md` | In progress (`xai/grok-4.6#xhigh`; session `ses_de9059acfffeuf1f38zpstQ1Y7`) | - |
+| `docs/vitals-tracker-v1/state.md` | Research-reconciled (current update) | `b65964f` + `5b18c8d` + current update |
+| `docs/vitals-tracker-v1/research.md` | Complete (`xai/grok-4.6#xhigh` verified) | `c201c69` |
 | `docs/vitals-tracker-v1/plan1.md` – `plan9.md` | Pending | - |
 | `docs/vitals-tracker-v1/review.md` | Skipped (`--skip review`) | - |
 | `docs/vitals-tracker-v1/final_report.md` | Pending | - |
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: RESEARCH IN PROGRESS — `xai/grok-4.6#xhigh` SUBAGENT DISPATCHED; AWAITING COMMIT**
+**CURRENT GATE: P1 PLANNING READY — BACKEND PLANNER `openai/gpt-6.2-sol#xhigh`**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
 2. [x] Run MAW Section 1.2 sequential role model selection preflight (**Researcher → Planner → Worker**, OpenCode `provider/model[#variant]` IDs or `none`) and persist `setup_status: complete` + `resume_gate: authorized`. Researcher = `xai/grok-4.6#xhigh`; backend planner = `openai/gpt-6.2-sol#xhigh`; frontend planner (P7–P8) = manual handoff; worker = harness-default.
-3. [#] Re-dispatch Step 2 Technical Researcher subagent with `xai/grok-4.6#xhigh` (`docs/vitals-tracker-v1/research.md`), reconcile DAG if needed, and update `dag_status: research-reconciled`.
-4. [ ] Execute MAW pipelined DAG loop (`P1` → `P2`‖`P3` → `P4`‖`P5`‖`P6` → `P7`‖`P8` → `P9`): spawn ready planners in foreground parallel, never read `research.md`/`plan*.md` into orchestrator context, pipeline ready workers immediately, and serialize git commits.
+3. [x] Re-dispatch Step 2 Technical Researcher subagent with `xai/grok-4.6#xhigh` (`docs/vitals-tracker-v1/research.md`), reconcile DAG if needed, and update `dag_status: research-reconciled`.
+4. [#] Execute MAW pipelined DAG loop (`P1` → `P2`‖`P3` → `P4`‖`P5`‖`P6` → `P7`‖`P8` → `P9`): spawn ready planners in foreground parallel, never read `research.md`/`plan*.md` into orchestrator context, pipeline ready workers immediately, and serialize git commits.
 5. [ ] Skip Step 5 Unified Code Review (`--skip review` recorded).
 6. [ ] Execute Step 6 Final Verification (`npm test`, `npm run typecheck`, `npm run lint`, `npm run build`), write and commit `docs/vitals-tracker-v1/final_report.md`, and set `status: complete`.
