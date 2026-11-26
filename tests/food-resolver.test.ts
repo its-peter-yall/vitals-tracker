@@ -1,12 +1,62 @@
-import { beforeEach, expect, it, vi } from "vitest";
-import { foods } from "@/db/schema";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { getDb } from "@/db";
+import { foods, intakeLogs, sessions, trackers, users } from "@/db/schema";
 import { createTestDb } from "@/db/test-utils";
+import { makeSession, SESSION_COOKIE } from "@/lib/auth/session";
 import {
   foodProfileSchema, normalizeFoodText, resolveRequestSchema, saveFoodSchema, searchQuerySchema,
 } from "@/lib/foods/schemas";
 
 beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new Error("Unexpected fetch in test")));
+});
+
+vi.mock("@/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/db")>();
+  return { ...actual, getDb: vi.fn() };
+});
+
+let token: string | undefined;
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) => name === SESSION_COOKIE && token ? { name, value: token } : undefined,
+  }),
+}));
+
+let routeFixture: Awaited<ReturnType<typeof createTestDb>> | undefined;
+let lookupClock = 0;
+const fixtureTime = "2026-11-26T08:00:00.000Z";
+
+afterEach(() => {
+  token = undefined;
+  routeFixture?.client.close();
+  routeFixture = undefined;
+  vi.mocked(getDb).mockReset();
+});
+
+async function setupFoodRoutes() {
+  // Stub only Date, not timers. Separate OFF module budgets/memos by >24h between route tests.
+  vi.setSystemTime(new Date(Date.parse(fixtureTime) + lookupClock++ * 2 * 86_400_000));
+  const { db, client } = await createTestDb();
+  routeFixture = { db, client };
+  vi.mocked(getDb).mockResolvedValue(db);
+  const [alice, bob] = await db.insert(users).values([
+    { email: "alice@example.test", name: "Alice", passwordHash: "unused", createdAt: fixtureTime },
+    { email: "bob@example.test", name: "Bob", passwordHash: "unused", createdAt: fixtureTime },
+  ]).returning();
+  const a = makeSession(alice.id);
+  const b = makeSession(bob.id);
+  await db.insert(sessions).values([a.row, b.row]);
+  token = a.token;
+  return { db, alice, bob, a, b };
+}
+
+const site = "https://vitals.example.test";
+const searchRequest = (q = "") => new Request(`${site}/api/foods/search?${new URLSearchParams({ q })}`);
+const postFoodRequest = (path: string, body: unknown) => new Request(`${site}${path}`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json; charset=utf-8" },
+  body: JSON.stringify(body),
 });
 
 it("validates sparse canonical food profiles and strict requests", () => {
@@ -202,4 +252,50 @@ it("skips USDA when the key is unset and maps matching USDA search results by ID
   expect(init?.redirect).toBe("error");
   expect(await lookupUsdaFood("another query")).toBeNull();
   expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it("authenticates local search and ranks aliases, recents and saves without cross-user rows", async () => {
+  const { GET } = await import("@/app/api/foods/search/route");
+  const { seedFoods } = await import("@/db/seed-foods");
+  expect((await GET(searchRequest("dahi"))).status).toBe(401);
+  expect(getDb).not.toHaveBeenCalled();
+  const { db, alice, bob, b } = await setupFoodRoutes();
+  await seedFoods(db);
+  const [aliceFood, bobFood] = await db.insert(foods).values([
+    { userId: alice.id, name: "Alice family yogurt", aliasesJson: ["dahi"], defaultUnit: "g",
+      nutrientsPer100Json: { calcium: 40 }, source: "manual", createdAt: fixtureTime },
+    { userId: bob.id, name: "Bob family yogurt", aliasesJson: ["dahi"], defaultUnit: "g",
+      nutrientsPer100Json: { calcium: 80 }, source: "manual", createdAt: fixtureTime },
+  ]).returning();
+  const chapati = (await db.select().from(foods)).find(({ aliasesJson }) => aliasesJson.includes("roti"))!;
+  const [tracker] = await db.insert(trackers).values({
+    userId: alice.id, name: "Daily", healthFlagsJson: [], createdAt: fixtureTime, updatedAt: fixtureTime,
+  }).returning();
+  const log = {
+    trackerId: tracker.id, userId: alice.id, logDate: "2026-11-26", loggedAt: fixtureTime,
+    entryType: "food" as const, displayName: "Test", quantity: 100, unit: "g" as const,
+    computedNutrientsJson: { sodium: 1 },
+  };
+  await db.insert(intakeLogs).values([
+    { ...log, foodId: chapati.id }, { ...log, foodId: chapati.id },
+    { ...log, foodId: bobFood.id }, // malicious legacy FK must not expose the foreign food
+  ]);
+
+  const recent = await GET(searchRequest());
+  expect(recent.headers.get("Cache-Control")).toBe("no-store");
+  expect((await recent.json()).foods.map((food: { id: string }) => food.id)).toEqual([chapati.id, aliceFood.id]);
+  expect(await (await GET(searchRequest("  DAHI "))).json()).toEqual({
+    foods: [
+      { id: aliceFood.id, name: "Alice family yogurt", aliases: ["dahi"], defaultUnit: "g",
+        nutrientsPer100: { calcium: 40 }, source: "manual", estimated: false },
+      expect.objectContaining({ name: "Plain whole-milk yogurt", source: "curated" }),
+      expect.objectContaining({ name: "Curd rice", source: "curated" }),
+    ],
+  });
+  expect((await (await GET(searchRequest("CHApa"))).json()).foods).toContainEqual(expect.objectContaining({ id: chapati.id }));
+  expect((await GET(searchRequest("x".repeat(101)))).status).toBe(400);
+  token = b.token;
+  expect((await (await GET(searchRequest())).json()).foods.map((food: { id: string }) => food.id)).toEqual([bobFood.id]);
+  expect(await (await GET(searchRequest("Alice family yogurt"))).json()).toEqual({ foods: [] });
+  expect(fetch).not.toHaveBeenCalled();
 });
