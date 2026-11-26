@@ -271,7 +271,7 @@ flowchart TD
 
 ## Research handoff
 
-*(Not started — the first Step 2 dispatch was cancelled before producing `research.md`. It will be re-dispatched only after the planner and worker roles are resolved, using the confirmed researcher selector `xai/grok-4.6#xhigh`. The orchestrator will then record the commit hash and a concise decisions/contracts summary here without reading `research.md`.)*
+*(In progress — Step 2 Technical Research was re-dispatched on 2026-11-26 with the confirmed selector `xai/grok-4.6#xhigh` (subagent session `ses_de9059acfffeuf1f38zpstQ1Y7`). Awaiting the `research.md` commit. The orchestrator will record the commit hash and a concise decisions/contracts summary here without reading `research.md`.)*
 
 ## Final verification commands and evidence
 
@@ -288,19 +288,19 @@ flowchart TD
 | :--- | :--- | :--- |
 | `docs/vitals-tracker-v1/goal.md` | Approved | `c09da44` |
 | `docs/vitals-tracker-v1/state.md` | Initial DAG (Resumed; preflight complete) | `b65964f` + `5b18c8d` + current update |
-| `docs/vitals-tracker-v1/research.md` | Not started (prior dispatch cancelled) | - |
+| `docs/vitals-tracker-v1/research.md` | In progress (`xai/grok-4.6#xhigh`; session `ses_de9059acfffeuf1f38zpstQ1Y7`) | - |
 | `docs/vitals-tracker-v1/plan1.md` – `plan9.md` | Pending | - |
 | `docs/vitals-tracker-v1/review.md` | Skipped (`--skip review`) | - |
 | `docs/vitals-tracker-v1/final_report.md` | Pending | - |
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: PREFLIGHT COMPLETE — RESEARCH DISPATCH READY (researcher `xai/grok-4.6#xhigh`)**
+**CURRENT GATE: RESEARCH IN PROGRESS — `xai/grok-4.6#xhigh` SUBAGENT DISPATCHED; AWAITING COMMIT**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
 2. [x] Run MAW Section 1.2 sequential role model selection preflight (**Researcher → Planner → Worker**, OpenCode `provider/model[#variant]` IDs or `none`) and persist `setup_status: complete` + `resume_gate: authorized`. Researcher = `xai/grok-4.6#xhigh`; backend planner = `openai/gpt-6.2-sol#xhigh`; frontend planner (P7–P8) = manual handoff; worker = harness-default.
-3. [ ] Re-dispatch Step 2 Technical Researcher subagent with `xai/grok-4.6#xhigh` (`docs/vitals-tracker-v1/research.md`), reconcile DAG if needed, and update `dag_status: research-reconciled`.
+3. [#] Re-dispatch Step 2 Technical Researcher subagent with `xai/grok-4.6#xhigh` (`docs/vitals-tracker-v1/research.md`), reconcile DAG if needed, and update `dag_status: research-reconciled`.
 4. [ ] Execute MAW pipelined DAG loop (`P1` → `P2`‖`P3` → `P4`‖`P5`‖`P6` → `P7`‖`P8` → `P9`): spawn ready planners in foreground parallel, never read `research.md`/`plan*.md` into orchestrator context, pipeline ready workers immediately, and serialize git commits.
 5. [ ] Skip Step 5 Unified Code Review (`--skip review` recorded).
 6. [ ] Execute Step 6 Final Verification (`npm test`, `npm run typecheck`, `npm run lint`, `npm run build`), write and commit `docs/vitals-tracker-v1/final_report.md`, and set `status: complete`.
