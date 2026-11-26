@@ -157,3 +157,57 @@ it("rejects malformed vision JSON, unknown keys, wrong units, duplicate amounts,
       .toMatchObject({ code: "INVALID_OUTPUT" });
   }
 });
+
+const createWorkerMock = vi.hoisted(() => vi.fn());
+vi.mock("tesseract.js", () => ({
+  default: { createWorker: createWorkerMock, OEM: { LSTM_ONLY: 1 } },
+}));
+
+it("starts OCR lazily, passes only in-memory bytes, disables the host cache, and reuses the worker", async () => {
+  const { createTesseractOcrProvider } = await import("@/lib/medicines/ocr-fallback");
+  createWorkerMock.mockReset();
+  vi.useFakeTimers();
+  const recognize = vi.fn().mockResolvedValue({ data: { text: "Vitamin D3 25 mcg" } });
+  const terminate = vi.fn().mockResolvedValue(undefined);
+  createWorkerMock.mockResolvedValue({ recognize, terminate });
+  const provider = createTesseractOcrProvider(1000, 200);
+  expect(createWorkerMock).not.toHaveBeenCalled();
+  await expect(provider.readText(visionImage)).resolves.toBe("Vitamin D3 25 mcg");
+  await expect(provider.readText(visionImage)).resolves.toBe("Vitamin D3 25 mcg");
+  expect(createWorkerMock).toHaveBeenCalledExactlyOnceWith("eng", 1, {
+    cacheMethod: "none", errorHandler: expect.any(Function),
+  });
+  expect(recognize).toHaveBeenCalledTimes(2);
+  expect(recognize).toHaveBeenLastCalledWith(Buffer.from(pngHeader));
+  expect(Buffer.isBuffer(recognize.mock.calls[0][0])).toBe(true);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(terminate).toHaveBeenCalledOnce();
+});
+
+it("returns a safe OCR error on init failure and will not spawn repeatedly", async () => {
+  const { createTesseractOcrProvider } = await import("@/lib/medicines/ocr-fallback");
+  createWorkerMock.mockReset().mockRejectedValue(new Error("private worker diagnostic"));
+  const provider = createTesseractOcrProvider();
+  const unavailable = { code: "OCR_UNAVAILABLE", message: "Local photo reading is unavailable." };
+  await expect(provider.readText(visionImage)).rejects.toMatchObject(unavailable);
+  await expect(provider.readText(visionImage)).rejects.toMatchObject(unavailable);
+  expect(createWorkerMock).toHaveBeenCalledOnce();
+});
+
+it("does not queue another image and terminates a timed-out recognition", async () => {
+  const { createTesseractOcrProvider } = await import("@/lib/medicines/ocr-fallback");
+  createWorkerMock.mockReset();
+  vi.useFakeTimers();
+  const recognize = vi.fn().mockResolvedValueOnce({ data: { text: "ok" } })
+    .mockImplementationOnce(() => new Promise(() => {}));
+  const terminate = vi.fn().mockResolvedValue(undefined);
+  createWorkerMock.mockResolvedValue({ recognize, terminate });
+  const provider = createTesseractOcrProvider(1000, 100);
+  await provider.readText(visionImage);
+  const pending = expect(provider.readText(visionImage)).rejects.toMatchObject({ code: "OCR_UNAVAILABLE" });
+  await expect(provider.readText(visionImage)).rejects.toMatchObject({ code: "OCR_UNAVAILABLE" });
+  await vi.advanceTimersByTimeAsync(100);
+  await pending;
+  expect(recognize).toHaveBeenCalledTimes(2);
+  expect(terminate).toHaveBeenCalledOnce();
+});
