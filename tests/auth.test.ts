@@ -263,3 +263,29 @@ it("updates only the authenticated user's settings and accepts presets, custom I
   expect(await fixture!.db.select({ theme: users.theme, visionModel: users.visionModel })
     .from(users).where(eq(users.id, b.user.id))).toEqual([{ theme: "dark", visionModel: null }]);
 });
+
+async function renderPage(Page: () => import("react").ReactNode) {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { ThemeProvider } = await import("@/components/theme-provider");
+  return renderToStaticMarkup(createElement(ThemeProvider, { children: createElement(Page) }));
+}
+
+it("renders labeled login and signup forms with a visible onboarding scope notice", async () => {
+  const { default: Login } = await import("@/app/(auth)/login/page");
+  const { default: Signup } = await import("@/app/(auth)/signup/page");
+  const login = await renderPage(Login);
+  const signup = await renderPage(Signup);
+  for (const html of [login, signup]) {
+    expect(html).toMatch(/<form[^>]*\bmethod="post"/);
+    expect(html).toContain('type="email"');
+    expect(html).toContain('type="password"');
+    expect(html).toContain('type="submit"');
+    expect(html).toMatch(/<label[^>]*>[\s\S]*Email[\s\S]*<input/);
+    expect(html).toMatch(/<label[^>]*>[\s\S]*Password[\s\S]*<input/);
+  }
+  expect(login).toContain('autoComplete="current-password"');
+  expect(signup).toContain('autoComplete="new-password"');
+  expect(signup).toContain("not medical advice");
+  expect(signup).toContain("blood pressure monitor");
+});
