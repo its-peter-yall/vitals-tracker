@@ -287,3 +287,45 @@ describe("RangeToggle", () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("AttentionSummary", () => {
+  it("renders plain-language Needs Attention and On Track cards and allows selecting a nutrient", async () => {
+    const { AttentionSummary } = await import("@/components/analytics/attention-summary");
+    const onSelectNutrient = vi.fn();
+    render(
+      <AttentionSummary
+        needsAttention={normalAnalyticsFixture.needsAttention}
+        onTrack={normalAnalyticsFixture.onTrack}
+        trends={normalAnalyticsFixture.trends}
+        onSelectNutrient={onSelectNutrient}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Needs Attention" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "On Track" })).toBeInTheDocument();
+    expect(screen.getByText("Vitamin D")).toBeInTheDocument();
+    expect(screen.getByText("Averaging 63% of daily goal")).toBeInTheDocument();
+    expect(screen.getByText("Protein")).toBeInTheDocument();
+    expect(screen.getByText("Averaging 92% of daily goal")).toBeInTheDocument();
+    expect(screen.getByText("Sodium")).toBeInTheDocument();
+    expect(screen.getByText("Within daily reference on logged days")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Vitamin D/i }));
+    expect(onSelectNutrient).toHaveBeenCalledExactlyOnceWith("vitaminD");
+  });
+
+  it("explains upper-limit cautions plainly without clinical readings and handles empty columns", async () => {
+    const { AttentionSummary } = await import("@/components/analytics/attention-summary");
+    render(
+      <AttentionSummary
+        needsAttention={highCautionAnalyticsFixture.needsAttention}
+        onTrack={highCautionAnalyticsFixture.onTrack}
+        trends={highCautionAnalyticsFixture.trends}
+      />,
+    );
+
+    expect(screen.getByText("Above daily reference on at least one day")).toBeInTheDocument();
+    expect(screen.getByText("No nutrients have reached on-track range yet.")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/mg\/dL|mmHg/i);
+  });
+});
