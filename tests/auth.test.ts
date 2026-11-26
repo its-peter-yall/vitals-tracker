@@ -289,3 +289,12 @@ it("renders labeled login and signup forms with a visible onboarding scope notic
   expect(signup).toContain("not medical advice");
   expect(signup).toContain("blood pressure monitor");
 });
+
+it("renders the Settings heading and medical notice even while preferences are loading", async () => {
+  const { default: Settings } = await import("@/app/settings/page");
+  const html = await renderPage(Settings);
+  expect(html).toContain(">Settings</h1>");
+  expect(html).toContain("Loading your settings");
+  expect(html).toContain("not medical advice");
+  expect(html).toContain("blood sugar meter");
+});
