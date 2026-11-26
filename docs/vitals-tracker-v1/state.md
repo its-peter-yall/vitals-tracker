@@ -263,7 +263,7 @@ flowchart TD
 
 ## Research handoff
 
-*(Pending — Step 2 Technical Research has not run yet. Will be populated with commit hash and verified library/API decisions once the user resumes and Step 2 completes.)*
+*(In progress — Step 2 Technical Research was dispatched on 2026-11-26 via the OpenCode `subagent` tool in harness-default mode. Awaiting the `research.md` commit. The orchestrator will record the commit hash and a concise decisions/contracts summary here without reading `research.md`.)*
 
 ## Final verification commands and evidence
 
@@ -280,19 +280,19 @@ flowchart TD
 | :--- | :--- | :--- |
 | `docs/vitals-tracker-v1/goal.md` | Approved | `c09da44` |
 | `docs/vitals-tracker-v1/state.md` | Initial DAG (Resumed; preflight complete) | `b65964f` + `5b18c8d` + current update |
-| `docs/vitals-tracker-v1/research.md` | Pending | - |
+| `docs/vitals-tracker-v1/research.md` | In progress (dispatched 2026-11-26) | - |
 | `docs/vitals-tracker-v1/plan1.md` – `plan9.md` | Pending | - |
 | `docs/vitals-tracker-v1/review.md` | Skipped (`--skip review`) | - |
 | `docs/vitals-tracker-v1/final_report.md` | Pending | - |
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: RESEARCH DISPATCH READY — ROLE PREFLIGHT COMPLETE (OpenCode `subagent`, harness-default)**
+**CURRENT GATE: RESEARCH IN PROGRESS — RESEARCHER SUBAGENT DISPATCHED; AWAITING COMMIT**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
 2. [x] Run MAW Section 1.2 sequential role model selection preflight (**Researcher → Planner → Worker**, OpenCode `provider/model[#variant]` IDs or `none`) and persist `setup_status: complete` + `resume_gate: authorized`. All three roles resolved to `harness-default`.
-3. [ ] Dispatch Step 2 Technical Researcher subagent (`docs/vitals-tracker-v1/research.md`), reconcile DAG if needed, and update `dag_status: research-reconciled`.
+3. [#] Dispatch Step 2 Technical Researcher subagent (`docs/vitals-tracker-v1/research.md`), reconcile DAG if needed, and update `dag_status: research-reconciled`.
 4. [ ] Execute MAW pipelined DAG loop (`P1` → `P2`‖`P3` → `P4`‖`P5`‖`P6` → `P7`‖`P8` → `P9`): spawn ready planners in foreground parallel, never read `research.md`/`plan*.md` into orchestrator context, pipeline ready workers immediately, and serialize git commits.
 5. [ ] Skip Step 5 Unified Code Review (`--skip review` recorded).
 6. [ ] Execute Step 6 Final Verification (`npm test`, `npm run typecheck`, `npm run lint`, `npm run build`), write and commit `docs/vitals-tracker-v1/final_report.md`, and set `status: complete`.
