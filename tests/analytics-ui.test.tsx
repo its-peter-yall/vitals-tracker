@@ -3,6 +3,17 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Analytics } from "@/lib/analytics/types";
 
+const replaceMock = vi.fn();
+vi.mock("next/navigation", () => ({
+  useParams: () => ({ id: "tracker-123" }),
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: replaceMock,
+    prefetch: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
+
 class ResizeObserverStub {
   observe() {}
   unobserve() {}
@@ -257,6 +268,7 @@ export const highCautionAnalyticsFixture: Analytics = {
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+  replaceMock.mockClear();
 });
 
 afterEach(() => {
@@ -444,5 +456,134 @@ describe("NutrientTrendChart", () => {
     );
 
     expect(screen.getByText(/No nutrients are selected for this tracker/i)).toBeInTheDocument();
+  });
+});
+
+function mockAnalyticsFetch(
+  handler: (url: string, init?: RequestInit) => Promise<Response> | Response,
+) {
+  const fetchMock = vi.fn<typeof fetch>((input, init) => {
+    const url = input instanceof Request ? input.url : String(input);
+    return Promise.resolve(handler(url, init));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+describe("TrackerAnalyticsPage", () => {
+  it("renders a calm empty state for brand-new trackers and links back to Today", async () => {
+    const { default: TrackerAnalyticsPage } = await import("@/app/trackers/[id]/analytics/page");
+    const fetchMock = mockAnalyticsFetch(() => Response.json({ analytics: emptyAnalyticsFixture }));
+
+    render(<TrackerAnalyticsPage />);
+
+    expect(await screen.findByText("No logs yet for the last 7 days")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go to Today’s log" })).toHaveAttribute("href", "/trackers/tracker-123");
+    expect(screen.queryByRole("heading", { name: "Needs Attention" })).not.toBeInTheDocument();
+
+    // Verifies required local YYYY-MM-DD endDate and default 7d range
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const calledUrl = String(fetchMock.mock.calls[0][0]);
+    expect(calledUrl).toMatch(/^\/api\/trackers\/tracker-123\/analytics\?range=7d&endDate=\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("renders normal analytics metrics, switches between 7d and 30d, and focuses a nutrient from insights", async () => {
+    const { default: TrackerAnalyticsPage } = await import("@/app/trackers/[id]/analytics/page");
+    const monthFixture: Analytics = {
+      ...normalAnalyticsFixture,
+      range: "30d",
+      startDate: "2026-10-28",
+      activeDays: 22,
+      averageCompletionPct: 81.2,
+      days: Array.from({ length: 30 }, (_, index) => ({
+        date: `2026-11-${String((index % 26) + 1).padStart(2, "0")}`,
+        active: index < 22,
+        alerts: [],
+      })),
+    };
+
+    const fetchMock = mockAnalyticsFetch((url) =>
+      Response.json({ analytics: url.includes("range=30d") ? monthFixture : normalAnalyticsFixture }),
+    );
+
+    render(<TrackerAnalyticsPage />);
+
+    expect(await screen.findByText("86%")).toBeInTheDocument();
+    expect(screen.getByText("6 of 7")).toBeInTheDocument();
+    expect(screen.getByText("Vitamin D3 25 mcg")).toBeInTheDocument();
+
+    // Clicking an insight button focuses that nutrient in the chart
+    fireEvent.click(screen.getByRole("button", { name: /Vitamin D.*Averaging 63%/i }));
+    expect(screen.getByRole("button", { name: "Vitamin D" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/Daily goal: 20 mcg/i)).toBeInTheDocument();
+
+    // Toggle to 30 Days
+    fireEvent.click(screen.getByRole("button", { name: "30 Days" }));
+    expect(await screen.findByText("81%")).toBeInTheDocument();
+    expect(screen.getByText("22 of 30")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toContain("range=30d");
+  });
+
+  it("renders high-caution analytics cleanly in Dark mode without clinical readings", async () => {
+    document.documentElement.classList.add("dark");
+    const { default: TrackerAnalyticsPage } = await import("@/app/trackers/[id]/analytics/page");
+    mockAnalyticsFetch(() => Response.json({ analytics: highCautionAnalyticsFixture }));
+
+    render(<TrackerAnalyticsPage />);
+
+    expect(await screen.findByText("54%")).toBeInTheDocument();
+    expect(screen.getByText("4 of 7")).toBeInTheDocument();
+    expect(screen.getByText("Blood pressure watch")).toBeInTheDocument();
+    expect(screen.getByText("Metformin")).toBeInTheDocument();
+    expect(document.documentElement).toHaveClass("dark");
+    expect(document.body.textContent).not.toMatch(/mg\/dL|mmHg/i);
+  });
+
+  it("handles medicine-only trackers (null averageCompletionPct), 401 redirect, and retryable errors", async () => {
+    const { default: TrackerAnalyticsPage } = await import("@/app/trackers/[id]/analytics/page");
+    const medicineOnly: Analytics = {
+      ...highCautionAnalyticsFixture,
+      averageCompletionPct: null,
+      trends: [],
+      needsAttention: [],
+      onTrack: [],
+      cautionDays: [],
+      cautionDayCount: 0,
+      days: highCautionAnalyticsFixture.days.map((day) => ({ ...day, alerts: [] })),
+    };
+
+    mockAnalyticsFetch(() => Response.json({ analytics: medicineOnly }));
+    const first = render(<TrackerAnalyticsPage />);
+    expect(await screen.findByText("—")).toBeInTheDocument();
+    expect(screen.getByText("No daily goals tracked")).toBeInTheDocument();
+    expect(screen.getByText(/No nutrients are selected for this tracker/i)).toBeInTheDocument();
+    first.unmount();
+
+    // 401 redirects to /login
+    mockAnalyticsFetch(() => Response.json({ error: "Please sign in." }, { status: 401 }));
+    const unauth = render(<TrackerAnalyticsPage />);
+    await vi.waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+    unauth.unmount();
+
+    // 404 shows calm not-found card
+    mockAnalyticsFetch(() => Response.json({ error: "Tracker not found." }, { status: 404 }));
+    const missing = render(<TrackerAnalyticsPage />);
+    expect(await screen.findByRole("heading", { name: "Tracker not found" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to trackers" })).toHaveAttribute("href", "/");
+    missing.unmount();
+
+    // 500 displays retryable error and recovers on Try again
+    let attempts = 0;
+    mockAnalyticsFetch(() => {
+      attempts += 1;
+      if (attempts === 1) return Response.json({ error: "Temporary issue." }, { status: 500 });
+      return Response.json({ analytics: normalAnalyticsFixture });
+    });
+
+    render(<TrackerAnalyticsPage />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Could not load analytics/i);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("86%")).toBeInTheDocument();
   });
 });
