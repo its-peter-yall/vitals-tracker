@@ -1,5 +1,9 @@
 import "server-only";
-import { IMAGE_MIMES, type ImageMime, type ScanImage } from "./types";
+import { OpenRouterError } from "@/lib/openrouter/client";
+import {
+  IMAGE_MIMES, type ImageMime, type MedicineScanDraft, type OcrCatalogEntry, type OcrProvider,
+  type ScanImage, type ScanResult, type ScanSource, type VisionProvider,
+} from "./types";
 
 const maxImageBytes = 2 * 1024 * 1024;
 const imageErrors = {
@@ -69,4 +73,75 @@ export async function readScanImage(request: Request): Promise<ScanImage> {
   const image = bytes.subarray(0, total);
   if (!signatureMatches(mime, image)) throw new ScanUploadError("UNSUPPORTED_IMAGE");
   return { mime, bytes: image };
+}
+
+type Providers = { vision: VisionProvider; ocr?: OcrProvider; catalog?: readonly OcrCatalogEntry[] };
+type Options = { mode: ScanSource; model: string | null };
+
+const recoveryCopy = {
+  UNREADABLE: "We couldn't read the label. Try a clear photo in even light or enter it manually.",
+  VISION_UNAVAILABLE: "Photo reading is unavailable. Try again or enter it manually.",
+  OCR_UNAVAILABLE: "Local photo reading is unavailable. You can enter it manually.",
+} as const;
+const reviewCopy = "Double-check the name, dose, and any amounts against the package before saving.";
+
+function recovery(source: ScanSource, code: keyof typeof recoveryCopy, offerOcr: boolean): ScanResult {
+  return {
+    requiresConfirmation: true, source, code, draft: null,
+    confidence: { level: "low", score: null }, message: recoveryCopy[code],
+    actions: offerOcr ? ["retake", "ocr", "manual"] : ["retake", "manual"],
+  };
+}
+
+function review(
+  source: ScanSource, draft: MedicineScanDraft, confidence: ScanResult["confidence"], offerOcr: boolean,
+): ScanResult {
+  return {
+    requiresConfirmation: true, source, code: "REVIEW", draft, confidence, message: reviewCopy,
+    actions: offerOcr ? ["retake", "ocr", "manual"] : ["retake", "manual"],
+  };
+}
+
+const normalizeLine = (text: string) => text.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
+function matchCatalog(text: string, catalog: readonly OcrCatalogEntry[]) {
+  const lines = new Set(text.slice(0, 4000).split(/\r?\n/).map(normalizeLine).filter(Boolean));
+  const matches = catalog.filter((item) =>
+    lines.has(normalizeLine(item.brandName)) || (item.genericName && lines.has(normalizeLine(item.genericName))));
+  if (matches.length !== 1) return undefined;
+  const item = matches[0];
+  return {
+    brandName: lines.has(normalizeLine(item.brandName)) ? item.brandName : null,
+    genericName: item.genericName,
+    category: item.category,
+  };
+}
+
+export async function recognizeMedicine(image: ScanImage, providers: Providers, options: Options): Promise<ScanResult> {
+  const { mode, model } = options;
+  if (mode === "ocr") {
+    if (!providers.ocr) return recovery(mode, "OCR_UNAVAILABLE", false);
+    try {
+      const matched = matchCatalog(await providers.ocr.readText(image), providers.catalog ?? []);
+      if (!matched) return recovery(mode, "UNREADABLE", false);
+      return review(mode, {
+        brandName: matched.brandName, genericName: matched.genericName, category: matched.category,
+        defaultDoseLabel: null, nutrientsPerDose: {}, notes: null,
+      }, { level: "low", score: null }, false);
+    } catch {
+      return recovery(mode, "OCR_UNAVAILABLE", false);
+    }
+  }
+  const offerOcr = Boolean(providers.ocr);
+  try {
+    const { draft, score } = await providers.vision.readLabel(image, model);
+    if (!draft.brandName && !draft.genericName) return recovery(mode, "UNREADABLE", offerOcr);
+    const incomplete = !draft.brandName || !draft.category || !draft.defaultDoseLabel ||
+      (draft.category !== "prescription" && !Object.keys(draft.nutrientsPerDose).length);
+    const level = incomplete || score < 0.60 ? "low" : score < 0.85 ? "medium" : "high";
+    return review(mode, draft, { level, score }, offerOcr && level === "low");
+  } catch (error) {
+    const code = error instanceof OpenRouterError && error.code === "INVALID_OUTPUT"
+      ? "UNREADABLE" : "VISION_UNAVAILABLE";
+    return recovery(mode, code, offerOcr);
+  }
 }

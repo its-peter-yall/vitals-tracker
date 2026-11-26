@@ -211,3 +211,83 @@ it("does not queue another image and terminates a timed-out recognition", async 
   expect(recognize).toHaveBeenCalledTimes(2);
   expect(terminate).toHaveBeenCalledOnce();
 });
+
+it("bands high, medium, and low confidence and caps partial vision at low", async () => {
+  const { recognizeMedicine } = await import("@/lib/medicines/recognizer");
+  const { openRouterVisionProvider: vision } = await import("@/lib/medicines/openrouter-vision");
+  const ocr = { readText: vi.fn() };
+  for (const [confidence, level] of [[0.85, "high"], [0.60, "medium"], [0.59, "low"]] as const) {
+    mockVision(JSON.stringify({ ...labeledVitamin, confidence }));
+    const result = await recognizeMedicine(visionImage, { vision, ocr }, { mode: "vision", model: null });
+    expect(result).toMatchObject({
+      requiresConfirmation: true, source: "vision", code: "REVIEW", confidence: { score: confidence, level },
+    });
+    expect(result.actions).toEqual(level === "low" ? ["retake", "ocr", "manual"] : ["retake", "manual"]);
+  }
+  for (const changes of [{ defaultDoseLabel: null }, { brandName: null }, { category: null }, { nutrients: [] }]) {
+    mockVision(JSON.stringify({ ...labeledVitamin, ...changes }));
+    await expect(recognizeMedicine(visionImage, { vision, ocr }, { mode: "vision", model: null }))
+      .resolves.toMatchObject({ confidence: { score: 0.91, level: "low" }, code: "REVIEW" });
+  }
+  expect(ocr.readText).not.toHaveBeenCalled();
+});
+
+it("returns useful recovery for invalid, unreadable, or unavailable vision without leaking provider text", async () => {
+  const { recognizeMedicine } = await import("@/lib/medicines/recognizer");
+  const { openRouterVisionProvider: vision } = await import("@/lib/medicines/openrouter-vision");
+  const ocr = { readText: vi.fn() };
+  for (const content of [
+    "{private provider error",
+    JSON.stringify({ brandName: null, genericName: null, confidence: 0.95 }),
+  ]) {
+    mockVision(content);
+    const result = await recognizeMedicine(visionImage, { vision, ocr }, { mode: "vision", model: null });
+    expect(result).toMatchObject({
+      code: "UNREADABLE", draft: null, confidence: { score: null, level: "low" },
+      actions: ["retake", "ocr", "manual"],
+    });
+    expect(JSON.stringify(result)).not.toContain("private provider error");
+  }
+  vi.stubEnv("OPENROUTER_API_KEY", undefined);
+  await expect(recognizeMedicine(visionImage, { vision, ocr }, { mode: "vision", model: null }))
+    .resolves.toMatchObject({ code: "VISION_UNAVAILABLE", draft: null, actions: ["retake", "ocr", "manual"] });
+  const fetchMock = mockVision("");
+  fetchMock.mockResolvedValue(new Response("private gateway detail", { status: 504 }));
+  const timeout = await recognizeMedicine(visionImage, { vision, ocr }, { mode: "vision", model: null });
+  expect(timeout).toMatchObject({ code: "VISION_UNAVAILABLE", draft: null });
+  expect(JSON.stringify(timeout)).not.toContain("private gateway detail");
+  expect(ocr.readText).not.toHaveBeenCalled();
+});
+
+it("uses OCR only when requested and matches just one whole label line to the curated catalog", async () => {
+  const { recognizeMedicine } = await import("@/lib/medicines/recognizer");
+  const { curatedMedicines: catalog } = await import("@/db/seed-medicines");
+  const vision = { readLabel: vi.fn() };
+  const ocr = { readText: vi.fn().mockResolvedValue("VITAMIN D3  25 mcg\nprivate batch note") };
+  const options = { mode: "ocr", model: null } as const;
+  const result = await recognizeMedicine(visionImage, { vision, ocr, catalog }, options);
+  expect(result).toMatchObject({
+    requiresConfirmation: true, source: "ocr", code: "REVIEW", confidence: { level: "low", score: null },
+    draft: {
+      brandName: "Vitamin D3 25 mcg", genericName: "Cholecalciferol", category: "supplement",
+      defaultDoseLabel: null, nutrientsPerDose: {}, notes: null,
+    },
+  });
+  expect(ocr.readText).toHaveBeenCalledExactlyOnceWith(visionImage);
+  expect(JSON.stringify(result)).not.toContain("private batch note");
+  ocr.readText.mockResolvedValue("Magnesium");
+  await expect(recognizeMedicine(visionImage, { vision, ocr, catalog }, options)).resolves
+    .toMatchObject({ draft: { brandName: null, genericName: "Magnesium", nutrientsPerDose: {} } });
+  for (const text of ["Metformin XR", "Vitamin D3 25 mcg\nMetformin", "unlisted"]) {
+    ocr.readText.mockResolvedValue(text);
+    await expect(recognizeMedicine(visionImage, { vision, ocr, catalog }, options))
+      .resolves.toMatchObject({ code: "UNREADABLE", draft: null });
+  }
+  ocr.readText.mockRejectedValue(new Error("private startup details"));
+  const failed = await recognizeMedicine(visionImage, { vision, ocr, catalog }, options);
+  expect(failed).toMatchObject({ code: "OCR_UNAVAILABLE", draft: null, actions: ["retake", "manual"] });
+  expect(JSON.stringify(failed)).not.toContain("private startup details");
+  await expect(recognizeMedicine(visionImage, { vision }, options))
+    .resolves.toMatchObject({ code: "OCR_UNAVAILABLE", draft: null });
+  expect(vision.readLabel).not.toHaveBeenCalled();
+});
