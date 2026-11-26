@@ -28,6 +28,12 @@ npm --version
 
 ## Quick Start — Local SQLite Setup
 
+### Windows one-click
+
+Double-click **`setup.bat`** once, then **`run.bat`** whenever you want to start the app. Setup installs dependencies, creates `.env.local` from `.env.example`, pushes the schema, and seeds the curated catalogs. Run starts the dev server on port `3000` and opens it in your default browser.
+
+For automation, `setup.bat --no-pause` skips the final pause. The manual steps below remain available for macOS/Linux or custom setups.
+
 1. **Install dependencies:**
 
    ```powershell
