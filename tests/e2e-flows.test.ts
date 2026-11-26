@@ -817,3 +817,260 @@ describe("Task 3: E2E medicine photo scan confirmation, 1-tap repeat, and Diabet
     }
   });
 });
+
+describe("Task 4: E2E 7d/30d analytics, quantity edit, Undo deletion, and logout", () => {
+  let fixture: Awaited<ReturnType<typeof createTestDb>> | undefined;
+
+  beforeEach(async () => {
+    cookieJar.clear();
+    vi.setSystemTime(new Date("2026-11-26T10:00:00.000Z"));
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new Error("Unexpected network fetch")));
+    fixture = await createTestDb();
+    vi.mocked(getDb).mockResolvedValue(fixture.db);
+  });
+
+  afterEach(() => {
+    cookieJar.clear();
+    fixture?.client.close();
+    fixture = undefined;
+    vi.mocked(getDb).mockReset();
+  });
+
+  it("handles quantity edits, Undo deletion clearing a caution, 7d vs 30d analytics rollups, and logout revocation", async () => {
+    const { POST: createTracker, GET: listTrackers } = await import("@/app/api/trackers/route");
+    const { GET: searchFoods } = await import("@/app/api/foods/search/route");
+    const { POST: saveMedicine } = await import("@/app/api/medicines/route");
+    const { GET: listLogs, POST: addLog } = await import("@/app/api/trackers/[id]/logs/route");
+    const { PATCH: editLog, DELETE: deleteLog } = await import("@/app/api/trackers/[id]/logs/[logId]/route");
+    const { GET: getSummary } = await import("@/app/api/trackers/[id]/summary/route");
+    const { GET: getAnalytics } = await import("@/app/api/trackers/[id]/analytics/route");
+    const { POST: logout } = await import("@/app/api/auth/logout/route");
+
+    await signupAndSeed(fixture!);
+
+    const trackerRes = await createTracker(
+      jsonReq("/api/trackers", {
+        name: "Analytics & Undo Care",
+        healthFlags: ["hypertension"],
+        nutrients: [
+          { nutrientKey: "protein", customDailyTarget: 20 },
+          { nutrientKey: "vitaminD" },
+          { nutrientKey: "sodium" },
+        ],
+      }),
+    );
+    expect(trackerRes.status).toBe(201);
+    const { tracker } = (await trackerRes.json()) as { tracker: { id: string } };
+
+    const findFood = async (q: string, exactName: string) => {
+      const res = await searchFoods(getReq(`/api/foods/search?q=${encodeURIComponent(q)}`));
+      const rows = (await res.json()).foods as Array<{ id: string; name: string }>;
+      const match = rows.find((row) => row.name === exactName);
+      expect(match, exactName).toBeDefined();
+      return match!.id;
+    };
+
+    const yogurtId = await findFood("dahi", "Plain whole-milk yogurt");
+    const cheddarId = await findFood("cheddar", "Cheddar cheese");
+    const breadId = await findFood("white bread", "White sandwich bread");
+
+    const suppRes = await saveMedicine(
+      jsonReq("/api/medicines", {
+        brandName: "Daily D3",
+        category: "supplement",
+        defaultDoseLabel: "1 softgel",
+        nutrientsPerDose: { vitaminD: 20 },
+        source: "manual",
+      }),
+    );
+    expect(suppRes.status).toBe(201);
+    const { medicine: dailyD3 } = await suppRes.json();
+
+    const rxRes = await saveMedicine(
+      jsonReq("/api/medicines", {
+        brandName: "Amlodipine",
+        category: "prescription",
+        defaultDoseLabel: "1 tablet",
+        nutrientsPerDose: {},
+        notes: "Take at the same time each morning.",
+        source: "manual",
+      }),
+    );
+    expect(rxRes.status).toBe(201);
+    const { medicine: amlodipine } = await rxRes.json();
+
+    const logFood = async (foodId: string, quantity: number, logDate: string) => {
+      const res = await addLog(
+        jsonReq(`/api/trackers/${tracker.id}/logs`, {
+          entryType: "food",
+          foodId,
+          quantity,
+          unit: "g",
+          logDate,
+        }),
+        idParams(tracker.id),
+      );
+      expect(res.status).toBe(201);
+      return (await res.json()).log as {
+        id: string;
+        quantity: number;
+        displayName: string;
+        computedNutrientsJson: Record<string, number>;
+      };
+    };
+
+    const logMed = async (medicineId: string, logDate: string) => {
+      const res = await addLog(
+        jsonReq(`/api/trackers/${tracker.id}/logs`, {
+          entryType: "medicine",
+          medicineId,
+          quantity: 1,
+          unit: "dose",
+          logDate,
+        }),
+        idParams(tracker.id),
+      );
+      expect(res.status).toBe(201);
+      return (await res.json()).log;
+    };
+
+    // Day inside 30d window ONLY (2026-11-05)
+    await logFood(yogurtId, 200, "2026-11-05");
+    await logMed(amlodipine.id, "2026-11-05");
+
+    // Caution day inside 7d window (2026-11-25): 200 g cheddar (1306 mg) + 200 g bread (980 mg) = 2286 mg sodium
+    await logFood(cheddarId, 200, "2026-11-25");
+    await logFood(breadId, 200, "2026-11-25");
+    await logMed(dailyD3.id, "2026-11-25");
+    await logMed(amlodipine.id, "2026-11-25");
+
+    // Today (2026-11-26): test quantity edit + Undo clearing an accidental high-sodium log
+    const yogurtLog = await logFood(yogurtId, 100, "2026-11-26");
+    expect(yogurtLog.computedNutrientsJson.protein).toBeCloseTo(3.47, 6);
+
+    // Edit quantity 100 g -> 200 g and verify proportional immutable snapshot rescale
+    const editRes = await editLog(
+      jsonReq(`/api/trackers/${tracker.id}/logs/${yogurtLog.id}`, { quantity: 200 }, "PATCH"),
+      logParams(tracker.id, yogurtLog.id),
+    );
+    expect(editRes.status).toBe(200);
+    const editedLog = (await editRes.json()).log;
+    expect(editedLog.quantity).toBe(200);
+    expect(editedLog.computedNutrientsJson.protein).toBeCloseTo(6.94, 6);
+    expect(editedLog.computedNutrientsJson.calcium).toBeCloseTo(242, 6);
+
+    // Add accidental high-sodium food on 2026-11-26 -> triggers caution -> Undo deletes it and clears caution
+    const accidentalCheddar = await logFood(cheddarId, 350, "2026-11-26");
+    const preUndoSummary = await (
+      await getSummary(getReq(`/api/trackers/${tracker.id}/summary?date=2026-11-26`), idParams(tracker.id))
+    ).json();
+    expect(preUndoSummary.alerts.map((a: { healthFlag: string }) => a.healthFlag)).toEqual(["hypertension"]);
+
+    const undoRes = await deleteLog(
+      deleteReq(`/api/trackers/${tracker.id}/logs/${accidentalCheddar.id}`),
+      logParams(tracker.id, accidentalCheddar.id),
+    );
+    expect(undoRes.status).toBe(200);
+    expect(await undoRes.json()).toEqual({ ok: true });
+
+    // Repeating Undo returns 404
+    const repeatUndo = await deleteLog(
+      deleteReq(`/api/trackers/${tracker.id}/logs/${accidentalCheddar.id}`),
+      logParams(tracker.id, accidentalCheddar.id),
+    );
+    expect(repeatUndo.status).toBe(404);
+
+    const postUndoLogs = (
+      await (await listLogs(getReq(`/api/trackers/${tracker.id}/logs?date=2026-11-26`), idParams(tracker.id))).json()
+    ).logs;
+    expect(postUndoLogs.map((l: { id: string }) => l.id)).toEqual([yogurtLog.id]);
+
+    const postUndoSummary = await (
+      await getSummary(getReq(`/api/trackers/${tracker.id}/summary?date=2026-11-26`), idParams(tracker.id))
+    ).json();
+    expect(postUndoSummary.alerts).toEqual([]);
+
+    await logMed(dailyD3.id, "2026-11-26");
+
+    // 7d analytics (2026-11-20 .. 2026-11-26)
+    const weekRes = await getAnalytics(
+      getReq(`/api/trackers/${tracker.id}/analytics?range=7d&endDate=2026-11-26`),
+      idParams(tracker.id),
+    );
+    expect(weekRes.status).toBe(200);
+    const { analytics: week } = await weekRes.json();
+    expect(week).toMatchObject({
+      range: "7d",
+      startDate: "2026-11-20",
+      endDate: "2026-11-26",
+      activeDays: 2,
+      cautionDays: ["2026-11-25"],
+      cautionDayCount: 1,
+    });
+    expect(week.days).toHaveLength(7);
+    expect(week.trends.map((t: { nutrientKey: string }) => t.nutrientKey)).toEqual([
+      "protein",
+      "vitaminD",
+      "sodium",
+    ]);
+    expect(week.needsAttention).toEqual(
+      expect.arrayContaining([
+        { nutrientKey: "protein", reason: "lowCompletion" },
+        { nutrientKey: "vitaminD", reason: "lowCompletion" },
+        { nutrientKey: "sodium", reason: "upperExceeded" },
+      ]),
+    );
+    expect(week.medicineAdherence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          medicineId: dailyD3.id,
+          displayName: "Daily D3",
+          loggedDays: 2,
+          rangeDays: 7,
+        }),
+        expect.objectContaining({
+          medicineId: amlodipine.id,
+          displayName: "Amlodipine",
+          loggedDays: 1,
+          rangeDays: 7,
+        }),
+      ]),
+    );
+
+    // 30d analytics (2026-10-28 .. 2026-11-26) includes 2026-11-05
+    const monthRes = await getAnalytics(
+      getReq(`/api/trackers/${tracker.id}/analytics?range=30d&endDate=2026-11-26`),
+      idParams(tracker.id),
+    );
+    expect(monthRes.status).toBe(200);
+    const { analytics: month } = await monthRes.json();
+    expect(month).toMatchObject({
+      range: "30d",
+      startDate: "2026-10-28",
+      endDate: "2026-11-26",
+      activeDays: 3,
+      cautionDays: ["2026-11-25"],
+      cautionDayCount: 1,
+    });
+    expect(month.days).toHaveLength(30);
+    expect(month.medicineAdherence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          medicineId: amlodipine.id,
+          loggedDays: 2,
+          rangeDays: 30,
+        }),
+        expect.objectContaining({
+          medicineId: dailyD3.id,
+          loggedDays: 2,
+          rangeDays: 30,
+        }),
+      ]),
+    );
+
+    // Logout revokes session and blocks subsequent tracker reads
+    const logoutRes = await logout(jsonReq("/api/auth/logout", {}));
+    expect(logoutRes.status).toBe(200);
+    expect((await listTrackers()).status).toBe(401);
+  });
+});
