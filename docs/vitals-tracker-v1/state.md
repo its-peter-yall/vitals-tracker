@@ -102,7 +102,7 @@ This is the research-reconciled DAG (`dag_status: research-reconciled`, research
 
 | Plan ID | Title & Scope | Worker dependencies | Touched files / subsystems | Planner status | Worker status | Commits |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **P1** | Project Scaffold, Drizzle/Turso Schema, OpenRouter Client & Dual-Chromatic Theme Foundation | R | `package.json`, `next.config.ts`, `tsconfig.json`, `vitest.config.ts`, `vitest.setup.ts`, `drizzle.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `.env.example`, `.gitignore`, `public/manifest.json`, `public/sw.js`, `public/icons/*`, `src/db/index.ts`, `src/db/schema.ts`, `src/db/test-utils.ts`, `src/lib/env.ts`, `src/lib/openrouter/*`, `src/app/layout.tsx`, `src/app/globals.css`, `src/components/theme-provider.tsx`, `src/components/ui/*`, `tests/db-schema.test.ts` | [x] `5433c0b` | [#] In progress | - |
+| **P1** | Project Scaffold, Drizzle/Turso Schema, OpenRouter Client & Dual-Chromatic Theme Foundation | R | `package.json`, `next.config.ts`, `tsconfig.json`, `vitest.config.ts`, `vitest.setup.ts`, `drizzle.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `.env.example`, `.gitignore`, `public/manifest.json`, `public/sw.js`, `public/icons/*`, `src/db/index.ts`, `src/db/schema.ts`, `src/db/test-utils.ts`, `src/lib/env.ts`, `src/lib/openrouter/*`, `src/app/layout.tsx`, `src/app/globals.css`, `src/components/theme-provider.tsx`, `src/components/ui/*`, `tests/db-schema.test.ts` | [x] `5433c0b` | [#] Lint fix | 7 commits: `59fbab9`…`53eabe7` |
 | **P2** | Lightweight Auth, Persistent Sessions & User Settings | P1 | `src/lib/auth/*`, `src/app/api/auth/**`, `src/app/api/settings/route.ts`, `src/app/(auth)/login/page.tsx`, `src/app/(auth)/signup/page.tsx`, `src/app/settings/page.tsx`, `tests/auth.test.ts` | [ ] Pending | [ ] Pending | - |
 | **P3** | Canonical Nutrient Catalog, Scaling Math & Condition Impact Engine | P1 | `src/lib/nutrients/*`, `src/lib/impact/*`, `tests/nutrients.test.ts`, `tests/impact-engine.test.ts` | [ ] Pending | [ ] Pending | - |
 | **P4** | Curated Food Catalog & Hybrid Food Resolver API | P2, P3 | `src/db/seed-foods.ts`, `src/lib/foods/*`, `src/app/api/foods/**`, `tests/food-resolver.test.ts` | [ ] Pending | [ ] Pending | - |
@@ -171,6 +171,7 @@ flowchart TD
 - `tests/db-schema.test.ts`  
 **Scope:** Bootstrap Next.js App Router + Tailwind + Vitest + all planned dependencies (`drizzle-orm`, `drizzle-kit`, `@libsql/client`, `zod`, `recharts`, `lucide-react`, `tesseract.js`, `@testing-library/react`, `jsdom`) so parallel downstream plans never touch `package.json`. **Research-reconciled pins:** Next `16.4.6`, React/React DOM `19.3.1`, TypeScript `7.0.2`, Tailwind `4.3.5`, Zod `4.6.7`, Drizzle ORM `0.45.4`, drizzle-kit `0.31.11`, `@libsql/client` `0.18.0`, Vitest `5.1.2`, ESLint `9.39.5`, `@types/node@24`; Node `>=24.15`; do not use Drizzle v1 RC or `@tursodatabase/*`. `create-next-app` refuses this non-empty repo, so scaffold the files manually. Set `serverExternalPackages: ['@libsql/client', 'libsql', 'tesseract.js']` and use the Node.js runtime. Implement all 7 Drizzle tables, libSQL connection helper (local `file:local.db` + Turso `libsql://`), in-memory test DB harness, server-only OpenRouter client (20s timeout, model allow-list, structured JSON extraction), PWA manifest/service worker registration, and dual-chromatic Light/Dark theme shell (`18px` base typography, `UndoToast`, accessible button/card primitives).  
 **Plan contract notes (`plan1.md`, `5433c0b`):** the temporary `/` fallback must yield to P7's real homepage and be verified by a production build/smoke test; DB factories are async and tests apply Drizzle migration SQL entirely in memory while committed migration history stays outside P1 ownership; deleting a food or medicine clears its log reference without altering the historical nutrient snapshot.  
+**Worker result (7 commits, `59fbab9`…`53eabe7`):** typecheck, build, `tests/db-schema.test.ts` (12/12), `src/components/ui/foundation.test.tsx` (4/4), and `npm test` (16/16) pass. `npm run lint` is blocked because `typescript-eslint@8.74.0` (bundled by `eslint-config-next@16.4.6`) supports TypeScript `<6.1.0`, while the pinned compiler is TypeScript 7.0.2. The official TypeScript 7.0 side-by-side fix is being applied: alias `typescript` to `@typescript/typescript6@6.0.2` for ESLint's API and add `@typescript/native` as an alias to `typescript@7.0.2` so `tsc` remains TS 7.  
 **Exit gate:** `npm run typecheck`, `npm run build`, and `npx vitest run tests/db-schema.test.ts` pass, proving all 7 tables migrate and round-trip cleanly in in-memory libSQL.
 
 ### P2 — Lightweight Auth, Persistent Sessions & User Settings
@@ -305,7 +306,7 @@ flowchart TD
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: P1 WORKER IN PROGRESS — HARNESS-DEFAULT SESSION `ses_de8f2473cffe23xx8DeA3FrnVf`**
+**CURRENT GATE: P1 LINT FIX IN PROGRESS — TYPESCRIPT 6/7 SIDE-BY-SIDE FOR `typescript-eslint`**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
