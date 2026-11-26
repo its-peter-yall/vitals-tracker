@@ -152,3 +152,63 @@ describe("Task 2: caution banner and nutrient progress cards", () => {
     expect(screen.getByText("Reference: 20 mcg")).toBeInTheDocument();
   });
 });
+
+describe("Task 3: daily log list edit and delete", () => {
+  it("renders food and medicine logs, displays medicineNotes, edits quantity, and triggers delete", async () => {
+    const { DailyLogList } = await import("@/components/trackers/daily-log-list");
+    const onEditQuantity = vi.fn().mockResolvedValue(undefined);
+    const onDeleteLog = vi.fn();
+
+    render(
+      <DailyLogList
+        logs={[
+          {
+            id: "log-1",
+            trackerId: "t-1",
+            logDate: "2026-11-26",
+            loggedAt: "2026-11-26T08:00:00.000Z",
+            entryType: "food",
+            foodId: "f-1",
+            medicineId: null,
+            displayName: "Plain whole-milk yogurt",
+            quantity: 100,
+            unit: "g",
+            computedNutrientsJson: { protein: 3.47, calcium: 121 },
+            medicineNotes: null,
+          },
+          {
+            id: "log-2",
+            trackerId: "t-1",
+            logDate: "2026-11-26",
+            loggedAt: "2026-11-26T08:15:00.000Z",
+            entryType: "medicine",
+            foodId: null,
+            medicineId: "m-1",
+            displayName: "Metformin 500",
+            quantity: 1,
+            unit: "dose",
+            computedNutrientsJson: {},
+            medicineNotes: "Take with meals to reduce stomach upset.",
+          },
+        ]}
+        onEditQuantity={onEditQuantity}
+        onDeleteLog={onDeleteLog}
+      />,
+    );
+
+    expect(screen.getByText("Plain whole-milk yogurt")).toBeInTheDocument();
+    expect(screen.getByText("100 g")).toBeInTheDocument();
+    expect(screen.getByText("Metformin 500")).toBeInTheDocument();
+    expect(screen.getByText("1 dose")).toBeInTheDocument();
+    expect(screen.getByText("Take with meals to reduce stomach upset.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /edit plain whole-milk yogurt/i }));
+    const qtyInput = screen.getByLabelText(/quantity \(g\)/i);
+    fireEvent.change(qtyInput, { target: { value: "150" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onEditQuantity).toHaveBeenCalledWith("log-1", 150));
+
+    fireEvent.click(screen.getByRole("button", { name: /delete metformin 500/i }));
+    expect(onDeleteLog).toHaveBeenCalledWith(expect.objectContaining({ id: "log-2" }));
+  });
+});
