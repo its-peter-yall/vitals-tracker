@@ -3,7 +3,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import type { Db } from "@/db";
 import { trackerNutrients, trackers } from "@/db/schema";
 import { isNutrientKey, NUTRIENT_CATALOG } from "@/lib/nutrients/catalog";
-import type { CreateTracker } from "./schemas";
+import type { CreateTracker, PatchTracker } from "./schemas";
 
 type Reader = Pick<Db, "select">;
 type TrackerRow = typeof trackers.$inferSelect;
@@ -59,7 +59,7 @@ async function loadTrackers(db: Reader, userId: string, id?: string) {
   return [...views.values()];
 }
 
-async function findTracker(db: Reader, userId: string, id: string) {
+export async function findTracker(db: Reader, userId: string, id: string) {
   return (await loadTrackers(db, userId, id))[0] ?? null;
 }
 
@@ -75,4 +75,25 @@ export function createTracker(db: Db, userId: string, input: CreateTracker) {
     if (selected.length) await tx.insert(trackerNutrients).values(selected);
     return (await findTracker(tx, userId, row.id))!;
   });
+}
+
+export function updateTracker(db: Db, userId: string, id: string, input: PatchTracker) {
+  return db.transaction(async (tx) => {
+    const [row] = await tx.update(trackers).set({
+      name: input.name, healthFlagsJson: input.healthFlags, updatedAt: new Date().toISOString(),
+    }).where(trackerScope(userId, id)).returning({ id: trackers.id });
+    if (!row) return null;
+    if (input.nutrients !== undefined) {
+      // The owned parent UPDATE above is the gate for child writes in this transaction.
+      await tx.delete(trackerNutrients).where(eq(trackerNutrients.trackerId, row.id));
+      const selected = nutrientRows(row.id, input.nutrients);
+      if (selected.length) await tx.insert(trackerNutrients).values(selected);
+    }
+    return findTracker(tx, userId, row.id);
+  });
+}
+
+export async function deleteTracker(db: Db, userId: string, id: string) {
+  const [row] = await db.delete(trackers).where(trackerScope(userId, id)).returning({ id: trackers.id });
+  return Boolean(row);
 }

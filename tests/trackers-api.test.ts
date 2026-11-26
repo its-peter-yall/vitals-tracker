@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createDb, getDb } from "@/db";
-import { sessions, trackerNutrients, users } from "@/db/schema";
+import { intakeLogs, sessions, trackerNutrients, users } from "@/db/schema";
 import { createTestDb } from "@/db/test-utils";
 import { makeSession, SESSION_COOKIE } from "@/lib/auth/session";
 
@@ -143,4 +143,54 @@ it("rejects bad tracker selections, spoofed ownership, and unauthenticated colle
   token = undefined;
   expect((await GET()).status).toBe(401);
   expect((await POST(request(root, "POST", base))).status).toBe(401);
+});
+
+const date = "2026-11-25";
+const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
+
+it("patches owned metadata and replaces the selection only when sent", async () => {
+  const { GET, PATCH, DELETE } = await import("@/app/api/trackers/[id]/route");
+  const original = await newTracker();
+  const { id } = original;
+  const path = `${root}/${id}`;
+  expect(await (await GET(request(path), ctx(id))).json()).toEqual({ tracker: original });
+  vi.setSystemTime(new Date("2026-11-26T03:16:00Z"));
+  const changed = await PATCH(request(path, "PATCH", { name: "New name", healthFlags: ["diabetes"] }), ctx(id));
+  expect(changed.status).toBe(200);
+  expect((await changed.json()).tracker).toMatchObject({
+    name: "New name", healthFlags: ["diabetes"], updatedAt: "2026-11-26T03:16:00.000Z",
+    nutrients: original.nutrients,
+  });
+  const reset = await PATCH(request(path, "PATCH", { nutrients: [{ nutrientKey: "sodium" }] }), ctx(id));
+  expect((await reset.json()).tracker.nutrients).toEqual([
+    expect.objectContaining({ nutrientKey: "sodium", dailyTarget: 2300, isCustomTarget: false, sortOrder: 0 }),
+  ]);
+  expect((await PATCH(request(path, "PATCH", {}), ctx(id))).status).toBe(400);
+  await db().insert(intakeLogs).values({
+    trackerId: id, userId: alice.id, logDate: date, loggedAt: iso, entryType: "food",
+    displayName: "Old food", quantity: 100, unit: "g", computedNutrientsJson: { sodium: 50 },
+  });
+  expect(await (await DELETE(request(path, "DELETE"), ctx(id))).json()).toEqual({ ok: true });
+  expect(await db().select().from(trackerNutrients)).toEqual([]);
+  expect(await db().select().from(intakeLogs)).toEqual([]);
+  expect((await GET(request(path), ctx(id))).status).toBe(404);
+});
+
+it("makes another user's tracker indistinguishable from a missing tracker", async () => {
+  const { GET, PATCH, DELETE } = await import("@/app/api/trackers/[id]/route");
+  const { id } = await newTracker();
+  token = bob.token;
+  for (const [method, handler, body] of [
+    ["GET", GET, undefined], ["PATCH", PATCH, { nutrients: [] }], ["DELETE", DELETE, undefined],
+  ] as const) {
+    const foreign = await handler(request(`${root}/${id}`, method, body), ctx(id));
+    const missing = await handler(request(`${root}/missing`, method, body), ctx("missing"));
+    expect(foreign.status).toBe(404);
+    expect(await foreign.json()).toEqual(await missing.json());
+    token = undefined;
+    expect((await handler(request(`${root}/${id}`, method, body), ctx(id))).status).toBe(401);
+    token = bob.token;
+  }
+  token = alice.token;
+  expect((await (await GET(request(`${root}/${id}`), ctx(id))).json()).tracker.nutrients).toHaveLength(3);
 });

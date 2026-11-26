@@ -14,3 +14,8 @@ const nutrients = z.array(z.strictObject({
 
 export const createTrackerSchema = z.strictObject({ name, healthFlags: healthFlags.default([]), nutrients });
 export type CreateTracker = z.output<typeof createTrackerSchema>;
+
+export const patchTrackerSchema = z.strictObject({
+  name: name.optional(), healthFlags: healthFlags.optional(), nutrients: nutrients.optional(),
+}).refine((input) => input.name !== undefined || input.healthFlags !== undefined || input.nutrients !== undefined);
+export type PatchTracker = z.output<typeof patchTrackerSchema>;
