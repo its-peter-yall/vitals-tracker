@@ -43,17 +43,51 @@ export default function TrackerTodayPage() {
   const [toast, setToast] = useState<ToastState | null>(null);
   const toastCounter = useRef(0);
   const pendingDeleteRef = useRef<IntakeLog | null>(null);
+  const [reload, setReload] = useState(0);
 
-  const loadDay = useCallback(
-    async (date: string, signal?: AbortSignal) => {
-      if (!trackerId) return;
+  const commitPendingDelete = useCallback(
+    async (logToDelete: IntakeLog, refreshAfter = true) => {
+      if (pendingDeleteRef.current?.id === logToDelete.id) {
+        pendingDeleteRef.current = null;
+      }
+      try {
+        await fetch(`/api/trackers/${trackerId}/logs/${logToDelete.id}`, {
+          method: "DELETE",
+          keepalive: true,
+        });
+      } finally {
+        if (refreshAfter) {
+          setReload((value) => value + 1);
+        }
+      }
+    },
+    [trackerId],
+  );
+
+  const flushPendingDelete = useCallback(async () => {
+    const pending = pendingDeleteRef.current;
+    if (!pending) return;
+    setToast(null);
+    await commitPendingDelete(pending, false);
+  }, [commitPendingDelete]);
+
+  useEffect(() => {
+    if (!trackerId) return;
+    const controller = new AbortController();
+    async function loadDay() {
       try {
         const [trackerRes, summaryRes, logsRes] = await Promise.all([
-          fetch(`/api/trackers/${trackerId}`, { cache: "no-store", signal }),
-          fetch(`/api/trackers/${trackerId}/summary?date=${date}`, { cache: "no-store", signal }),
-          fetch(`/api/trackers/${trackerId}/logs?date=${date}`, { cache: "no-store", signal }),
+          fetch(`/api/trackers/${trackerId}`, { cache: "no-store", signal: controller.signal }),
+          fetch(`/api/trackers/${trackerId}/summary?date=${selectedDate}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          }),
+          fetch(`/api/trackers/${trackerId}/logs?date=${selectedDate}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          }),
         ]);
-        if (signal?.aborted) return;
+        if (controller.signal.aborted) return;
         if (
           trackerRes.status === 401 ||
           summaryRes.status === 401 ||
@@ -75,53 +109,22 @@ export default function TrackerTodayPage() {
           summaryRes.json(),
           logsRes.json(),
         ]);
-        if (signal?.aborted) return;
+        if (controller.signal.aborted) return;
         setError("");
         setTracker(trackerBody.tracker);
         setSummary(summaryBody);
         setLogs(Array.isArray(logsBody.logs) ? logsBody.logs : []);
       } catch {
-        if (!signal?.aborted) {
+        if (!controller.signal.aborted) {
           setError("Could not load this day's tracker. Try again.");
         }
       } finally {
-        if (!signal?.aborted) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
-    },
-    [trackerId],
-  );
-
-  const commitPendingDelete = useCallback(
-    async (logToDelete: IntakeLog, refreshAfter = true) => {
-      if (pendingDeleteRef.current?.id === logToDelete.id) {
-        pendingDeleteRef.current = null;
-      }
-      try {
-        await fetch(`/api/trackers/${trackerId}/logs/${logToDelete.id}`, {
-          method: "DELETE",
-          keepalive: true,
-        });
-      } finally {
-        if (refreshAfter) {
-          void loadDay(selectedDate);
-        }
-      }
-    },
-    [loadDay, selectedDate, trackerId],
-  );
-
-  const flushPendingDelete = useCallback(async () => {
-    const pending = pendingDeleteRef.current;
-    if (!pending) return;
-    setToast(null);
-    await commitPendingDelete(pending, false);
-  }, [commitPendingDelete]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadDay(selectedDate, controller.signal);
+    }
+    void loadDay();
     return () => controller.abort();
-  }, [loadDay, selectedDate]);
+  }, [reload, selectedDate, trackerId]);
 
   useEffect(() => {
     return () => {
@@ -146,7 +149,7 @@ export default function TrackerTodayPage() {
       logId: log.id,
       message: `Logged ${log.displayName}`,
     });
-    await loadDay(selectedDate);
+    setReload((value) => value + 1);
   }
 
   async function handleEditQuantity(logId: string, quantity: number) {
@@ -161,7 +164,7 @@ export default function TrackerTodayPage() {
       return;
     }
     if (!response.ok) throw new Error("edit failed");
-    await loadDay(selectedDate);
+    setReload((value) => value + 1);
   }
 
   function handleDeleteLog(log: IntakeLog) {
@@ -189,14 +192,14 @@ export default function TrackerTodayPage() {
           method: "DELETE",
         });
       } finally {
-        await loadDay(selectedDate);
+        setReload((value) => value + 1);
       }
       return;
     }
     if (pendingDeleteRef.current?.id === current.log.id) {
       pendingDeleteRef.current = null;
     }
-    await loadDay(selectedDate);
+    setReload((value) => value + 1);
   }
 
   function handleToastExpire() {
@@ -289,7 +292,7 @@ export default function TrackerTodayPage() {
           <p role="alert" className="font-semibold text-accent">
             {error}
           </p>
-          <Button variant="outline" onClick={() => void loadDay(selectedDate)}>
+          <Button variant="outline" onClick={() => setReload((value) => value + 1)}>
             Try again
           </Button>
         </Card>

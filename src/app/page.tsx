@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { BarChart3, Plus, Settings, Trash2 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
@@ -30,12 +30,14 @@ export default function TrackersHomePage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
 
-  const loadHome = useCallback(
-    async (signal?: AbortSignal) => {
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadHome() {
       try {
-        const meRes = await fetch("/api/auth/me", { cache: "no-store", signal });
-        if (signal?.aborted) return;
+        const meRes = await fetch("/api/auth/me", { cache: "no-store", signal: controller.signal });
+        if (controller.signal.aborted) return;
         if (meRes.status === 401) {
           setError("");
           setAuthState("signed-out");
@@ -62,27 +64,25 @@ export default function TrackersHomePage() {
           // Ignore storage access errors in restricted browsers.
         }
 
-        const trackersRes = await fetch("/api/trackers", { cache: "no-store", signal });
-        if (signal?.aborted) return;
+        const trackersRes = await fetch("/api/trackers", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
         if (!trackersRes.ok) throw new Error("trackers load failed");
         const trackersBody = await trackersRes.json();
-        if (!signal?.aborted) {
+        if (!controller.signal.aborted) {
           setTrackers(Array.isArray(trackersBody?.trackers) ? trackersBody.trackers : []);
         }
       } catch {
-        if (!signal?.aborted) {
+        if (!controller.signal.aborted) {
           setError("Could not load your trackers. Check your connection and try again.");
         }
       }
-    },
-    [setMode],
-  );
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void loadHome(controller.signal);
+    }
+    void loadHome();
     return () => controller.abort();
-  }, [loadHome]);
+  }, [reload, setMode]);
 
   async function deleteTracker(id: string) {
     if (deletingId) return;
@@ -184,7 +184,7 @@ export default function TrackersHomePage() {
           <p role="alert" className="font-semibold text-accent">
             {error}
           </p>
-          <Button variant="outline" onClick={() => void loadHome()}>
+          <Button variant="outline" onClick={() => setReload((value) => value + 1)}>
             Try again
           </Button>
         </Card>
