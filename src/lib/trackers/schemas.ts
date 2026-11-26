@@ -35,3 +35,17 @@ export function dateFromRequest(request: Request) {
 }
 
 export const patchLogSchema = z.strictObject({ quantity: positiveAmount });
+
+const analyticsQuerySchema = z.strictObject({
+  range: z.enum(["7d", "30d"]).default("7d"), endDate: localDateSchema,
+}).refine(({ range, endDate }) => endDate >= (range === "7d" ? "0001-01-07" : "0001-01-30"));
+export type AnalyticsQuery = z.output<typeof analyticsQuerySchema>;
+
+export function analyticsQueryFromRequest(request: Request) {
+  const params = new URL(request.url).searchParams;
+  const ranges = params.getAll("range");
+  const dates = params.getAll("endDate");
+  return analyticsQuerySchema.safeParse(ranges.length > 1 || dates.length !== 1 ? undefined : {
+    range: ranges[0], endDate: dates[0],
+  });
+}
