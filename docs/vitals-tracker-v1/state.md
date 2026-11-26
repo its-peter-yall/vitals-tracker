@@ -13,12 +13,12 @@ delegation:
   capability_matrix_row: "OpenCode | subagent | The model argument as provider/model, optionally with a variant suffix; a Markdown agent may also pin model in ~/.config/opencode/agents/<name>.md or .opencode/agents/<name>.md | The #variant suffix on the model value, or the tool's variant argument | Exact provider/model ID plus a variant | Low; re-check that the catalog entry still advertises the chosen variant"
   model_selection: supported
   effort_control: supported
-  setup_status: pending
+  setup_status: complete
   enforcement: unverified
   roles:
-    researcher: { mode: pending, model: null, effort: null, model_scope: id }
-    planner: { mode: pending, model: null, effort: null, model_scope: id }
-    worker: { mode: pending, model: null, effort: null, model_scope: id }
+    researcher: { mode: harness-default, model: null, effort: null, model_scope: id }
+    planner: { mode: harness-default, model: null, effort: null, model_scope: id }
+    worker: { mode: harness-default, model: null, effort: null, model_scope: id }
 ---
 
 # State & Dependency Graph: Vitals & Nutrient Care Tracker (`vitals-tracker-v1`)
@@ -37,8 +37,8 @@ delegation:
 
 - Harness: **OpenCode** (`subagent` delegation tool with `agent: explore | general` and an optional `model` as `provider/model[#variant]`; capability matrix row: OpenCode — exact provider/model ID plus a variant).
 - Capability evidence: The exposed `subagent` schema accepts `model` (`providerID/modelID` or `providerID/modelID#variant`) and `agent`. `opencode models` enumerates the live provider/model catalog; model metadata in `~/.cache/opencode/models.json` advertises reasoning options where available. There is no separate effort parameter; effort is encoded as the optional `#variant` suffix. Antigravity's `invoke_subagent` is not available in this session, so the persisted Antigravity tier plan was replaced.
-- Selection order: Researcher → Planner → Worker (strictly sequential preflight; `/resume` invoked 2026-11-26; answers pending).
-- Enforcement: `unverified` (no subagents dispatched yet).
+- Selection order: Researcher → Planner → Worker. Resolved 2026-11-26 as `harness-default` for all three roles after the `/resume` preflight; no per-role model or effort overrides are passed. A duplicate researcher prompt was shown because the first tool result was lost during a server restart; the user asked to stop repeating the question, so the recommended default was applied.
+- Enforcement: `unverified` (no subagents dispatched yet). Harness-default mode has no model override to enforce; the child inherits the session model.
 - Reviewer/fixer: Skipped (`--skip review`); not part of role selection.
 
 | Handoff ID | Role | Plan/phase scope | Prompt reference | Expected artifacts | Status | Returned evidence |
@@ -279,7 +279,7 @@ flowchart TD
 | Artifact | State | Commit |
 | :--- | :--- | :--- |
 | `docs/vitals-tracker-v1/goal.md` | Approved | `c09da44` |
-| `docs/vitals-tracker-v1/state.md` | Initial DAG (Resumed; preflight in progress) | `b65964f` + current update |
+| `docs/vitals-tracker-v1/state.md` | Initial DAG (Resumed; preflight complete) | `b65964f` + `5b18c8d` + current update |
 | `docs/vitals-tracker-v1/research.md` | Pending | - |
 | `docs/vitals-tracker-v1/plan1.md` – `plan9.md` | Pending | - |
 | `docs/vitals-tracker-v1/review.md` | Skipped (`--skip review`) | - |
@@ -287,11 +287,11 @@ flowchart TD
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: RESUMED — ROLE MODEL PREFLIGHT IN PROGRESS (OpenCode `subagent`)**
+**CURRENT GATE: RESEARCH DISPATCH READY — ROLE PREFLIGHT COMPLETE (OpenCode `subagent`, harness-default)**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
-2. [ ] Run MAW Section 1.2 sequential role model selection preflight (**Researcher → Planner → Worker**, OpenCode `provider/model[#variant]` IDs or `none`) and persist `setup_status: complete` + `resume_gate: authorized`.
+2. [x] Run MAW Section 1.2 sequential role model selection preflight (**Researcher → Planner → Worker**, OpenCode `provider/model[#variant]` IDs or `none`) and persist `setup_status: complete` + `resume_gate: authorized`. All three roles resolved to `harness-default`.
 3. [ ] Dispatch Step 2 Technical Researcher subagent (`docs/vitals-tracker-v1/research.md`), reconcile DAG if needed, and update `dag_status: research-reconciled`.
 4. [ ] Execute MAW pipelined DAG loop (`P1` → `P2`‖`P3` → `P4`‖`P5`‖`P6` → `P7`‖`P8` → `P9`): spawn ready planners in foreground parallel, never read `research.md`/`plan*.md` into orchestrator context, pipeline ready workers immediately, and serialize git commits.
 5. [ ] Skip Step 5 Unified Code Review (`--skip review` recorded).
