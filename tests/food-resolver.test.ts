@@ -1,4 +1,6 @@
 import { expect, it } from "vitest";
+import { foods } from "@/db/schema";
+import { createTestDb } from "@/db/test-utils";
 import {
   foodProfileSchema, normalizeFoodText, resolveRequestSchema, saveFoodSchema, searchQuerySchema,
 } from "@/lib/foods/schemas";
@@ -26,4 +28,35 @@ it("validates sparse canonical food profiles and strict requests", () => {
   expect(resolveRequestSchema.safeParse({ query: "a".repeat(101) }).success).toBe(false);
   expect(normalizeFoodText("  Crème–Brûlée!  ")).toBe("creme brulee");
   expect(normalizeFoodText("दही")).toBe("दही".normalize("NFKD"));
+});
+
+it("seeds stable curated staples in SQLite without duplication", async () => {
+  const { seedFoods } = await import("@/db/seed-foods");
+  const { db, client } = await createTestDb();
+  try {
+    await seedFoods(db);
+    const first = await db.select().from(foods);
+    expect(first.length).toBeGreaterThanOrEqual(85);
+    for (const row of first) {
+      expect(row.userId).toBeNull();
+      expect(row.source).toBe("curated");
+      expect(row.aliasesJson.length).toBeGreaterThan(0);
+      expect(foodProfileSchema.safeParse({
+        name: row.name, aliases: row.aliasesJson, defaultUnit: row.defaultUnit,
+        nutrientsPer100: row.nutrientsPer100Json,
+      }).success).toBe(true);
+    }
+    expect(first.find((row) => row.name === "Banana")?.nutrientsPer100Json).toMatchObject({
+      potassium: 358, totalSugars: 12.23, vitaminC: 8.7,
+    });
+    expect(first.find((row) => row.name === "Chia seeds")?.nutrientsPer100Json)
+      .not.toHaveProperty("totalSugars");
+    expect(first.find((row) => row.aliasesJson.includes("doodh"))).toMatchObject({
+      defaultUnit: "ml", nutrientsPer100Json: { calcium: 116.39 },
+    });
+    await seedFoods(db);
+    expect((await db.select().from(foods)).map(({ id }) => id).sort()).toEqual(first.map(({ id }) => id).sort());
+  } finally {
+    client.close();
+  }
 });
