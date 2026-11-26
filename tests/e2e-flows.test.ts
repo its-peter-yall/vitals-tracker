@@ -515,3 +515,305 @@ describe("Task 2: E2E signup/session, guided tracker creation, and food g/ml log
     expect((await getTracker(getReq(`/api/trackers/${tracker.id}`), idParams(tracker.id))).status).toBe(404);
   });
 });
+
+describe("Task 3: E2E medicine photo scan confirmation, 1-tap repeat, and Diabetes/High-BP cautions", () => {
+  let fixture: Awaited<ReturnType<typeof createTestDb>> | undefined;
+
+  beforeEach(async () => {
+    cookieJar.clear();
+    vi.setSystemTime(new Date("2026-11-26T09:00:00.000Z"));
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new Error("Unexpected network fetch")));
+    fixture = await createTestDb();
+    vi.mocked(getDb).mockResolvedValue(fixture.db);
+  });
+
+  afterEach(() => {
+    cookieJar.clear();
+    fixture?.client.close();
+    fixture = undefined;
+    vi.mocked(getDb).mockReset();
+  });
+
+  it("scans and confirms supplement + prescription medicines, repeats via 1-tap My Medicines with zero AI calls, and triggers safe Diabetes & High-BP cautions", async () => {
+    const { PATCH: patchSettings } = await import("@/app/api/settings/route");
+    const { POST: createTracker } = await import("@/app/api/trackers/route");
+    const { POST: scanMedicine } = await import("@/app/api/medicines/scan/route");
+    const { GET: listMedicines, POST: saveMedicine } = await import("@/app/api/medicines/route");
+    const { GET: searchFoods } = await import("@/app/api/foods/search/route");
+    const { GET: listLogs, POST: addLog } = await import("@/app/api/trackers/[id]/logs/route");
+    const { GET: getSummary } = await import("@/app/api/trackers/[id]/summary/route");
+
+    const amma = await signupAndSeed(fixture!);
+    vi.stubEnv("OPENROUTER_API_KEY", "test-vision-key");
+
+    // Configure custom user vision model in Settings
+    expect(
+      (await patchSettings(jsonReq("/api/settings", { visionModel: "openai/gpt-4o" }, "PATCH"))).status,
+    ).toBe(200);
+
+    // Create Diabetes + High-BP tracker without pinning addedSugars so full-day hidden-nutrient alert evaluation is also proven
+    const trackerRes = await createTracker(
+      jsonReq("/api/trackers", {
+        name: "Care Plan",
+        healthFlags: ["diabetes", "hypertension"],
+        nutrients: [
+          { nutrientKey: "vitaminD" },
+          { nutrientKey: "calcium" },
+          { nutrientKey: "sodium" },
+        ],
+      }),
+    );
+    expect(trackerRes.status).toBe(201);
+    const { tracker } = (await trackerRes.json()) as { tracker: { id: string } };
+
+    // 1. Photo-scan a supplement via OpenRouter Vision (must NOT auto-save or auto-log)
+    const visionFetch = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  brandName: "CalciD3 Plus",
+                  genericName: "Calcium + Cholecalciferol",
+                  category: "supplement",
+                  defaultDoseLabel: "1 tablet",
+                  nutrients: [
+                    { key: "vitaminD", amount: 25, unit: "mcg" },
+                    { key: "calcium", amount: 500, unit: "mg" },
+                  ],
+                  notes: "Take after breakfast.",
+                  confidence: 0.92,
+                }),
+              },
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  brandName: "Metformin 500",
+                  genericName: "Metformin hydrochloride",
+                  category: "prescription",
+                  defaultDoseLabel: "1 tablet",
+                  nutrients: [],
+                  notes: "Take with evening meal to reduce stomach upset.",
+                  confidence: 0.88,
+                }),
+              },
+            },
+          ],
+        }),
+      );
+    vi.stubGlobal("fetch", visionFetch);
+
+    const suppScanRes = await scanMedicine(imageReq("/api/medicines/scan", "image/jpeg", JPEG_BYTES));
+    expect(suppScanRes.status).toBe(200);
+    const suppScan = await suppScanRes.json();
+    expect(suppScan).toMatchObject({
+      requiresConfirmation: true,
+      source: "vision",
+      code: "REVIEW",
+      confidence: { level: "high", score: 0.92 },
+      draft: {
+        brandName: "CalciD3 Plus",
+        category: "supplement",
+        defaultDoseLabel: "1 tablet",
+        nutrientsPerDose: { vitaminD: 25, calcium: 500 },
+      },
+    });
+    // Verify Settings vision model override was sent to OpenRouter
+    expect(JSON.parse(String(visionFetch.mock.calls[0][1]?.body)).model).toBe("openai/gpt-4o");
+    // Zero DB writes before explicit confirmation
+    expect(
+      await fixture!.db.select().from(schema.medicines).where(eq(schema.medicines.userId, amma.user.id)),
+    ).toEqual([]);
+    expect(await fixture!.db.select().from(schema.intakeLogs)).toEqual([]);
+
+    // Confirm & save supplement to My Medicines, then log 1 dose on 2026-11-26
+    const suppSaveRes = await saveMedicine(
+      jsonReq("/api/medicines", {
+        brandName: suppScan.draft.brandName,
+        genericName: suppScan.draft.genericName,
+        category: suppScan.draft.category,
+        defaultDoseLabel: suppScan.draft.defaultDoseLabel,
+        nutrientsPerDose: suppScan.draft.nutrientsPerDose,
+        notes: suppScan.draft.notes,
+        source: "vision_confirmed",
+      }),
+    );
+    expect(suppSaveRes.status).toBe(201);
+    const { medicine: savedSupplement } = await suppSaveRes.json();
+
+    const day1 = "2026-11-26";
+    const suppLogRes = await addLog(
+      jsonReq(`/api/trackers/${tracker.id}/logs`, {
+        entryType: "medicine",
+        medicineId: savedSupplement.id,
+        quantity: 1,
+        unit: "dose",
+        logDate: day1,
+      }),
+      idParams(tracker.id),
+    );
+    expect(suppLogRes.status).toBe(201);
+    expect((await suppLogRes.json()).log.computedNutrientsJson).toEqual({ vitaminD: 25, calcium: 500 });
+
+    // 2. Photo-scan and confirm a prescription medicine (0 nutrients + plain-language food notes)
+    const rxScanRes = await scanMedicine(imageReq("/api/medicines/scan", "image/png", PNG_BYTES));
+    expect(rxScanRes.status).toBe(200);
+    const rxScan = await rxScanRes.json();
+    expect(rxScan).toMatchObject({
+      requiresConfirmation: true,
+      code: "REVIEW",
+      confidence: { level: "high", score: 0.88 },
+      draft: {
+        brandName: "Metformin 500",
+        category: "prescription",
+        nutrientsPerDose: {},
+        notes: "Take with evening meal to reduce stomach upset.",
+      },
+    });
+
+    const rxSaveRes = await saveMedicine(
+      jsonReq("/api/medicines", {
+        brandName: rxScan.draft.brandName,
+        genericName: rxScan.draft.genericName,
+        category: rxScan.draft.category,
+        defaultDoseLabel: rxScan.draft.defaultDoseLabel,
+        nutrientsPerDose: rxScan.draft.nutrientsPerDose,
+        notes: rxScan.draft.notes,
+        source: "vision_confirmed",
+      }),
+    );
+    expect(rxSaveRes.status).toBe(201);
+    const { medicine: savedPrescription } = await rxSaveRes.json();
+
+    const rxLogRes = await addLog(
+      jsonReq(`/api/trackers/${tracker.id}/logs`, {
+        entryType: "medicine",
+        medicineId: savedPrescription.id,
+        quantity: 1,
+        unit: "dose",
+        logDate: day1,
+      }),
+      idParams(tracker.id),
+    );
+    expect(rxLogRes.status).toBe(201);
+    expect((await rxLogRes.json()).log).toMatchObject({
+      computedNutrientsJson: {},
+      medicineNotes: "Take with evening meal to reduce stomach upset.",
+    });
+
+    // 3. 1-tap repeat medicine logging on next local date (2026-11-27) with ZERO external fetch calls
+    const forbiddenFetch = vi.fn<typeof fetch>().mockRejectedValue(new Error("Should not call OpenRouter on repeat"));
+    vi.stubGlobal("fetch", forbiddenFetch);
+
+    const cabinetRes = await listMedicines();
+    expect(cabinetRes.status).toBe(200);
+    const cabinet = (await cabinetRes.json()) as {
+      medicines: Array<{ id: string; brandName: string }>;
+      curated: Array<{ id: string }>;
+    };
+    expect(cabinet.medicines.map((m) => m.brandName)).toEqual(
+      expect.arrayContaining(["CalciD3 Plus", "Metformin 500"]),
+    );
+    expect(cabinet.curated).toHaveLength(6);
+
+    const day2 = "2026-11-27";
+    for (const medId of [savedSupplement.id, savedPrescription.id]) {
+      const repeatRes = await addLog(
+        jsonReq(`/api/trackers/${tracker.id}/logs`, {
+          entryType: "medicine",
+          medicineId: medId,
+          quantity: 1,
+          unit: "dose",
+          logDate: day2,
+        }),
+        idParams(tracker.id),
+      );
+      expect(repeatRes.status).toBe(201);
+    }
+    expect(forbiddenFetch).not.toHaveBeenCalled();
+
+    const day2Logs = (await (await listLogs(getReq(`/api/trackers/${tracker.id}/logs?date=${day2}`), idParams(tracker.id))).json()).logs;
+    expect(day2Logs).toHaveLength(2);
+    expect(day2Logs.find((l: { medicineId: string }) => l.medicineId === savedPrescription.id)?.medicineNotes).toBe(
+      "Take with evening meal to reduce stomach upset.",
+    );
+
+    // 4. Diabetes & High-BP condition caution evaluation on day1 using seeded curated foods
+    // Medjool dates 60 g -> 39.882 g totalSugars (> 35 g diabetes threshold, even though totalSugars is NOT pinned)
+    // Cheddar cheese 200 g (1306 mg sodium) + White sandwich bread 200 g (980 mg sodium) -> 2286 mg sodium (> 2000 mg hypertension threshold)
+    const findFoodId = async (q: string, exactName: string) => {
+      const res = await searchFoods(getReq(`/api/foods/search?q=${encodeURIComponent(q)}`));
+      const rows = (await res.json()).foods as Array<{ id: string; name: string }>;
+      const match = rows.find((row) => row.name === exactName);
+      expect(match, exactName).toBeDefined();
+      return match!.id;
+    };
+
+    const datesId = await findFoodId("dates", "Medjool dates");
+    const cheddarId = await findFoodId("cheddar", "Cheddar cheese");
+    const breadId = await findFoodId("white bread", "White sandwich bread");
+
+    for (const [foodId, quantity] of [
+      [datesId, 60],
+      [cheddarId, 200],
+      [breadId, 200],
+    ] as const) {
+      const res = await addLog(
+        jsonReq(`/api/trackers/${tracker.id}/logs`, {
+          entryType: "food",
+          foodId,
+          quantity,
+          unit: "g",
+          logDate: day1,
+        }),
+        idParams(tracker.id),
+      );
+      expect(res.status).toBe(201);
+    }
+
+    const summaryRes = await getSummary(
+      getReq(`/api/trackers/${tracker.id}/summary?date=${day1}`),
+      idParams(tracker.id),
+    );
+    expect(summaryRes.status).toBe(200);
+    const summary = (await summaryRes.json()) as {
+      progress: Array<{ nutrientKey: string; amount: number; hasAmount: boolean }>;
+      alerts: Array<{
+        healthFlag: "diabetes" | "hypertension";
+        message: string;
+        triggers: Array<{ nutrientKey: string; total: number; threshold: number; unit: string }>;
+      }>;
+    };
+
+    // Supplement vitaminD + calcium are reflected in selected progress cards
+    expect(summary.progress.find((p) => p.nutrientKey === "vitaminD")?.amount).toBeCloseTo(26.2, 4);
+    expect(summary.progress.find((p) => p.nutrientKey === "calcium")?.amount).toBeGreaterThan(2000);
+    expect(summary.progress.find((p) => p.nutrientKey === "sodium")?.amount).toBeCloseTo(2286.6, 4);
+
+    // Both Diabetes and High-BP cautions fire with strict non-clinical directional copy
+    expect(summary.alerts.map((a) => a.healthFlag)).toEqual(["diabetes", "hypertension"]);
+    expect(summary.alerts[0].triggers[0]).toMatchObject({
+      nutrientKey: "totalSugars",
+      threshold: 35,
+      unit: "g",
+    });
+    expect(summary.alerts[0].triggers[0].total).toBeGreaterThan(35);
+    expect(summary.alerts[1].triggers[0]).toMatchObject({
+      nutrientKey: "sodium",
+      threshold: 2000,
+      unit: "mg",
+    });
+    expect(summary.alerts[1].triggers[0].total).toBeGreaterThan(2000);
+    for (const alert of summary.alerts) {
+      expect(alert.message).not.toMatch(/mg\s*\/\s*dL|mm\s*Hg|\d/i);
+    }
+  });
+});
