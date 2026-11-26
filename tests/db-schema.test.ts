@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import { expect, it, vi } from "vitest";
+import * as z from "zod";
 
 it("bootstraps Node-only Next and Tailwind with strict TypeScript", async () => {
   const { default: config } = await import("../next.config");
@@ -144,4 +145,117 @@ it("enforces uniqueness, enums and foreign keys, has both date indexes, and isol
   } finally {
     f.client.close();
   }
+});
+
+const completionInput = {
+  prompt: "Read the label",
+  schemaName: "label",
+  jsonSchema: {
+    type: "object", properties: { name: { type: "string" } },
+    required: ["name"], additionalProperties: false,
+  },
+  output: z.object({ name: z.string() }),
+};
+const modelText = (content: string) => Response.json({ choices: [{ message: { content } }] });
+
+it("posts a text-first data-URL vision completion and validates fenced JSON", async () => {
+  const { completeJson } = await import("@/lib/openrouter/client");
+  const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(modelText("```json\n{\"name\":\"Label\"}\n```"));
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubEnv("DATABASE_URL", ":memory:");
+  vi.stubEnv("OPENROUTER_API_KEY", "fixture-key");
+  vi.stubEnv("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash");
+  vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://app.example.test");
+  await expect(completeJson({
+    ...completionInput, model: "openai/gpt-4o", system: "Extract only visible text.",
+    image: { mime: "image/jpeg", bytes: Uint8Array.of(0xff, 0xd8, 0xff) },
+  })).resolves.toEqual({ name: "Label" });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const [url, init] = fetchMock.mock.calls[0];
+  expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
+  expect(init).toMatchObject({
+    method: "POST", headers: { Authorization: "Bearer fixture-key", "HTTP-Referer": "https://app.example.test" },
+    signal: expect.any(AbortSignal),
+  });
+  expect(JSON.parse(String(init?.body))).toEqual({
+    model: "openai/gpt-4o",
+    messages: [
+      { role: "system", content: "Extract only visible text." },
+      { role: "user", content: [
+        { type: "text", text: completionInput.prompt },
+        { type: "image_url", image_url: { url: "data:image/jpeg;base64,/9j/", detail: "auto" } },
+      ] },
+    ],
+    response_format: { type: "json_schema", json_schema: {
+      name: "label", strict: true, schema: completionInput.jsonSchema,
+    } },
+    temperature: 0,
+  });
+});
+
+it("falls back to JSON object once only for unsupported structured output", async () => {
+  const { completeJson } = await import("@/lib/openrouter/client");
+  const fetchMock = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json({ error: { message: "json_schema is not supported" } }, { status: 400 }))
+    .mockResolvedValueOnce(modelText('{"name":123}'));
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubEnv("DATABASE_URL", ":memory:");
+  vi.stubEnv("OPENROUTER_API_KEY", "fixture-key");
+  vi.stubEnv("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash");
+  await expect(completeJson(completionInput)).rejects.toMatchObject({ code: "INVALID_OUTPUT" });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  const body = JSON.parse(String(fetchMock.mock.calls[1][1]?.body));
+  expect(body).toMatchObject({
+    model: "google/gemini-2.5-flash", response_format: { type: "json_object" },
+    messages: [{ role: "user", content: completionInput.prompt }],
+  });
+});
+
+it("maps embedded, authentication and configuration errors without exposing provider details", async () => {
+  const { completeJson } = await import("@/lib/openrouter/client");
+  const fetchMock = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json({ choices: [{ error: { code: 503, message: "private detail" } }] }))
+    .mockResolvedValueOnce(Response.json({ error: { message: "private key detail" } }, { status: 401 }));
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubEnv("DATABASE_URL", ":memory:");
+  vi.stubEnv("OPENROUTER_API_KEY", "");
+  await expect(completeJson(completionInput)).rejects.toMatchObject({ code: "NOT_CONFIGURED" });
+  expect(fetchMock).not.toHaveBeenCalled();
+  vi.stubEnv("OPENROUTER_API_KEY", "fixture-key");
+  await expect(completeJson(completionInput)).rejects.toMatchObject({ code: "PROVIDER" });
+  await expect(completeJson(completionInput)).rejects.toMatchObject({
+    code: "AUTH", message: "AI access could not be verified.",
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it("honors a short Retry-After within the one-request retry budget", async () => {
+  const { completeJson } = await import("@/lib/openrouter/client");
+  const fetchMock = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json({}, { status: 429, headers: { "Retry-After": "0" } }))
+    .mockResolvedValueOnce(modelText('{"name":"Recovered"}'));
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubEnv("DATABASE_URL", ":memory:");
+  vi.stubEnv("OPENROUTER_API_KEY", "fixture-key");
+  await expect(completeJson(completionInput)).resolves.toEqual({ name: "Recovered" });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock.mock.calls[0][1]?.signal).toBe(fetchMock.mock.calls[1][1]?.signal);
+});
+
+it("aborts a pending OpenRouter request at 20 seconds", async () => {
+  const { completeJson } = await import("@/lib/openrouter/client");
+  vi.useFakeTimers();
+  vi.stubEnv("DATABASE_URL", ":memory:");
+  vi.stubEnv("OPENROUTER_API_KEY", "fixture-key");
+  const fetchMock = vi.fn<typeof fetch>((_url, init) => new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  const result = expect(completeJson(completionInput)).rejects.toMatchObject({ code: "TIMEOUT" });
+  await vi.advanceTimersByTimeAsync(19_999);
+  const signal = fetchMock.mock.calls[0][1]?.signal;
+  expect(signal?.aborted).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(signal?.aborted).toBe(true);
+  await result;
 });
