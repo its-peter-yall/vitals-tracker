@@ -67,3 +67,88 @@ describe("Task 1: local-date helpers and tracker layout tabs", () => {
     expect(screen.getByText("Daily Body")).toBeInTheDocument();
   });
 });
+
+describe("Task 2: caution banner and nutrient progress cards", () => {
+  it("renders nothing when alerts are empty and shows directional caution details when present", async () => {
+    const { CautionBanner } = await import("@/components/trackers/caution-banner");
+    const empty = render(<CautionBanner alerts={[]} />);
+    expect(empty.container).toBeEmptyDOMElement();
+    empty.unmount();
+
+    render(
+      <CautionBanner
+        alerts={[
+          {
+            healthFlag: "diabetes",
+            message: "Sugar logged today is above the tracker’s reference. Sugary foods and drinks can raise blood sugar.",
+            triggers: [{ nutrientKey: "totalSugars", total: 42.34567, threshold: 35, unit: "g" }],
+          },
+        ]}
+      />,
+    );
+    const region = screen.getByRole("region", { name: /nutritional caution/i });
+    expect(region).toBeInTheDocument();
+    expect(region).toHaveTextContent(/Sugary foods and drinks can raise blood sugar/i);
+    expect(region).toHaveTextContent("Total Sugars: 42.3457 g (reference 35 g)");
+    expect(region.textContent).not.toMatch(/mg\/dL|mmHg/i);
+  });
+
+  it("renders goal vs upper progress cards and distinguishes unreported amounts from zero", async () => {
+    const { NutrientProgressCard } = await import("@/components/trackers/nutrient-progress-card");
+    render(
+      <div>
+        <NutrientProgressCard
+          item={{
+            nutrientKey: "protein",
+            label: "Protein",
+            unit: "g",
+            dailyTarget: 50,
+            isCustomTarget: false,
+            sortOrder: 0,
+            targetKind: "goal",
+            amount: 25.5,
+            hasAmount: true,
+          }}
+        />
+        <NutrientProgressCard
+          item={{
+            nutrientKey: "sodium",
+            label: "Sodium",
+            unit: "mg",
+            dailyTarget: 2000,
+            isCustomTarget: true,
+            sortOrder: 1,
+            targetKind: "upper",
+            amount: 2400,
+            hasAmount: true,
+          }}
+        />
+        <NutrientProgressCard
+          item={{
+            nutrientKey: "vitaminD",
+            label: "Vitamin D",
+            unit: "mcg",
+            dailyTarget: 20,
+            isCustomTarget: false,
+            sortOrder: 2,
+            targetKind: "goal",
+            amount: 0,
+            hasAmount: false,
+          }}
+        />
+      </div>,
+    );
+
+    expect(screen.getByText("Protein")).toBeInTheDocument();
+    expect(screen.getByText("25.5 / 50 g")).toBeInTheDocument();
+    expect(screen.getByText("51% of daily reference")).toBeInTheDocument();
+
+    expect(screen.getByText("Sodium")).toBeInTheDocument();
+    expect(screen.getByText("2400 / 2000 mg")).toBeInTheDocument();
+    expect(screen.getByText(/above upper reference/i)).toBeInTheDocument();
+
+    expect(screen.getByText("Vitamin D")).toBeInTheDocument();
+    expect(screen.getByText("Not reported yet")).toBeInTheDocument();
+    expect(screen.getByText("Reference: 20 mcg")).toBeInTheDocument();
+  });
+});
