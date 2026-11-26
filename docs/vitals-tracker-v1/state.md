@@ -13,12 +13,12 @@ delegation:
   capability_matrix_row: "OpenCode | subagent | The model argument as provider/model, optionally with a variant suffix; a Markdown agent may also pin model in ~/.config/opencode/agents/<name>.md or .opencode/agents/<name>.md | The #variant suffix on the model value, or the tool's variant argument | Exact provider/model ID plus a variant | Low; re-check that the catalog entry still advertises the chosen variant"
   model_selection: supported
   effort_control: supported
-  setup_status: pending
+  setup_status: complete
   enforcement: unverified
   roles:
     researcher: { mode: automatic, model: "xai/grok-4.6#xhigh", effort: "xhigh", model_scope: id }
     planner: { mode: automatic, model: "openai/gpt-6.2-sol#xhigh", effort: "xhigh", model_scope: id }
-    worker: { mode: pending, model: null, effort: null, model_scope: id }
+    worker: { mode: harness-default, model: null, effort: null, model_scope: id }
   plan_overrides:
     planner:
       P7: { mode: manual, model: null, effort: null, scope: "frontend" }
@@ -44,7 +44,7 @@ delegation:
 - Selection order: Researcher → Planner → Worker.
   - **Researcher:** `xai/grok-4.6#xhigh` (vendor-native Grok 4.6 with extra-high reasoning; Grok 4.6 advertises `low | medium | high | xhigh`).
   - **Planner:** `openai/gpt-6.2-sol#xhigh` for backend/foundation plans P1–P6 and P9. The user explicitly split planning by frontend/backend and chose a **manual handoff** for the frontend planner on P7 and P8; no frontend planner subagent will be spawned, and those prompts are emitted only when P7/P8 planning prerequisites are met.
-  - **Worker:** pending; must be asked next before any dispatch.
+  - **Worker:** `harness-default` for both backend/foundation (P1–P6, P9) and frontend (P7–P8); no model override is passed.
   - The earlier harness-default entry was a mistake caused by treating the user's selection as a duplicate prompt answer; it has been corrected.
 - Enforcement: `unverified` (no subagent has completed yet). The first automatic dispatch must use `model: xai/grok-4.6#xhigh`; verify the child actually ran on Grok 4.6 with `xhigh` or record the failure.
 - Reviewer/fixer: Skipped (`--skip review`); not part of role selection.
@@ -52,7 +52,7 @@ delegation:
 | Handoff ID | Role | Plan/phase scope | Prompt reference | Expected artifacts | Status | Returned evidence |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 
-*(No manual handoffs issued yet. Pending handoffs block their dependents, not independent work.)*
+*(No manual handoffs issued yet. The frontend planner for P7/P8 is configured as a manual handoff, but its prerequisites (P4/P5/P6 plans or workers) are not yet met; the copyable prompt will be recorded here when ready. Pending handoffs block their dependents, not independent work.)*
 
 ## Workflow milestones
 
@@ -295,12 +295,12 @@ flowchart TD
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: ROLE PREFLIGHT 3/3 — RESEARCHER AND PLANNER RESOLVED; WORKER PENDING**
+**CURRENT GATE: PREFLIGHT COMPLETE — RESEARCH DISPATCH READY (researcher `xai/grok-4.6#xhigh`)**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
-2. [#] Run MAW Section 1.2 sequential role model selection preflight (**Researcher → Planner → Worker**, OpenCode `provider/model[#variant]` IDs or `none`) and persist `setup_status: complete` + `resume_gate: authorized`. Researcher = `xai/grok-4.6#xhigh`; backend planner = `openai/gpt-6.2-sol#xhigh`; frontend planner (P7–P8) = manual handoff; worker pending.
-3. [ ] Re-dispatch Step 2 Technical Researcher subagent with `xai/grok-4.6#xhigh` after the preflight completes (`docs/vitals-tracker-v1/research.md`), reconcile DAG if needed, and update `dag_status: research-reconciled`.
+2. [x] Run MAW Section 1.2 sequential role model selection preflight (**Researcher → Planner → Worker**, OpenCode `provider/model[#variant]` IDs or `none`) and persist `setup_status: complete` + `resume_gate: authorized`. Researcher = `xai/grok-4.6#xhigh`; backend planner = `openai/gpt-6.2-sol#xhigh`; frontend planner (P7–P8) = manual handoff; worker = harness-default.
+3. [ ] Re-dispatch Step 2 Technical Researcher subagent with `xai/grok-4.6#xhigh` (`docs/vitals-tracker-v1/research.md`), reconcile DAG if needed, and update `dag_status: research-reconciled`.
 4. [ ] Execute MAW pipelined DAG loop (`P1` → `P2`‖`P3` → `P4`‖`P5`‖`P6` → `P7`‖`P8` → `P9`): spawn ready planners in foreground parallel, never read `research.md`/`plan*.md` into orchestrator context, pipeline ready workers immediately, and serialize git commits.
 5. [ ] Skip Step 5 Unified Code Review (`--skip review` recorded).
 6. [ ] Execute Step 6 Final Verification (`npm test`, `npm run typecheck`, `npm run lint`, `npm run build`), write and commit `docs/vitals-tracker-v1/final_report.md`, and set `status: complete`.
