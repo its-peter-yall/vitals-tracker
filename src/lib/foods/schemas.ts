@@ -65,3 +65,7 @@ export type ResolveFoodResult =
   | { kind: "saved" | "curated"; food: SavedFood }
   | { kind: "draft"; draft: FoodDraft }
   | { kind: "unavailable"; status: 404 | 422 | 503; error: string };
+
+export function lookupAliases(query: string, name: string): string[] {
+  return normalizeFoodText(query) === normalizeFoodText(name) ? [] : [query.trim()];
+}
