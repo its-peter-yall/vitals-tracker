@@ -7,18 +7,18 @@ skipped_phases: [review]
 source: conversation (brainstorming session 2026-11-26)
 goal_status: approved
 dag_status: initial
-resume_gate: none
+resume_gate: authorized
 delegation:
-  harness: antigravity
-  capability_matrix_row: "Antigravity | invoke_subagent | Tier via invoke_subagent Model parameter / agent frontmatter | None (effort_control unsupported) | Tier only: inherit, flash, pro"
+  harness: opencode
+  capability_matrix_row: "OpenCode | subagent | The model argument as provider/model, optionally with a variant suffix; a Markdown agent may also pin model in ~/.config/opencode/agents/<name>.md or .opencode/agents/<name>.md | The #variant suffix on the model value, or the tool's variant argument | Exact provider/model ID plus a variant | Low; re-check that the catalog entry still advertises the chosen variant"
   model_selection: supported
-  effort_control: unsupported
+  effort_control: supported
   setup_status: pending
   enforcement: unverified
   roles:
-    researcher: { mode: pending, model: null, effort: null, model_scope: tier }
-    planner: { mode: pending, model: null, effort: null, model_scope: tier }
-    worker: { mode: pending, model: null, effort: null, model_scope: tier }
+    researcher: { mode: pending, model: null, effort: null, model_scope: id }
+    planner: { mode: pending, model: null, effort: null, model_scope: id }
+    worker: { mode: pending, model: null, effort: null, model_scope: id }
 ---
 
 # State & Dependency Graph: Vitals & Nutrient Care Tracker (`vitals-tracker-v1`)
@@ -30,14 +30,14 @@ delegation:
 - Create no unnecessary directories; reuse standard Next.js App Router (`src/`) and `tests/` directories.
 - Skipped phases declared: `--skip review` (Step 5 Unified Code Review is bypassed per user request).
 - Mandatory phases: Brainstorming, planning, worker execution, and final verification remain required.
-- Current authorization: **PAUSED** at user request after writing `goal.md` and constructing the complete initial DAG in `state.md`. Do not run research, planning, or code implementation until the user reviews and resumes.
+- Current authorization: **RESUMED** via `/resume` on 2026-11-26; goal and initial DAG accepted. Complete the role-model preflight, then dispatch research.
 - File preservation rules: Keep `.env.local` (if created by the user for Turso/OpenRouter secrets) strictly untracked in `.gitignore`; never commit API keys or local SQLite database files.
 
 ## Delegation configuration & handoffs
 
-- Harness: **Antigravity** (`invoke_subagent` delegation tool; capability matrix row: Antigravity — tier-only selection, no per-subagent effort control).
-- Capability evidence: Exposed `invoke_subagent` schema supports `Model` tier selection (`inherit`, `flash`, `pro`, plus `flash_lite`; MAW Antigravity tiers: `inherit | flash | pro`, plus `none` manual handoff). No thinking-effort parameter exists (`effort_control: unsupported`, `effort: null`).
-- Selection order: Researcher → Planner → Worker (strictly sequential preflight; deferred until `/resume` because the user asked to write `goal.md` and `state.md` and pause).
+- Harness: **OpenCode** (`subagent` delegation tool with `agent: explore | general` and an optional `model` as `provider/model[#variant]`; capability matrix row: OpenCode — exact provider/model ID plus a variant).
+- Capability evidence: The exposed `subagent` schema accepts `model` (`providerID/modelID` or `providerID/modelID#variant`) and `agent`. `opencode models` enumerates the live provider/model catalog; model metadata in `~/.cache/opencode/models.json` advertises reasoning options where available. There is no separate effort parameter; effort is encoded as the optional `#variant` suffix. Antigravity's `invoke_subagent` is not available in this session, so the persisted Antigravity tier plan was replaced.
+- Selection order: Researcher → Planner → Worker (strictly sequential preflight; `/resume` invoked 2026-11-26; answers pending).
 - Enforcement: `unverified` (no subagents dispatched yet).
 - Reviewer/fixer: Skipped (`--skip review`); not part of role selection.
 
@@ -64,7 +64,7 @@ delegation:
 - [x] Write and commit the validated `goal.md`: `c09da44`.
 - [x] Self-check specification for completeness, consistency, ambiguity, and scope.
 - [x] Construct the complete pre-research MAW DAG, disjoint file ownership, dependencies, exit gates, acceptance mapping, and resume procedure below.
-- [ ] Final user review of written `goal.md` and `state.md` + explicit resume authorization.
+- [x] Final user review of written `goal.md` and `state.md` + explicit resume authorization (`/resume`, 2026-11-26).
 
 ## Initial findings
 
@@ -279,7 +279,7 @@ flowchart TD
 | Artifact | State | Commit |
 | :--- | :--- | :--- |
 | `docs/vitals-tracker-v1/goal.md` | Approved | `c09da44` |
-| `docs/vitals-tracker-v1/state.md` | Initial DAG (Paused) | Committed (current HEAD) |
+| `docs/vitals-tracker-v1/state.md` | Initial DAG (Resumed; preflight in progress) | `b65964f` + current update |
 | `docs/vitals-tracker-v1/research.md` | Pending | - |
 | `docs/vitals-tracker-v1/plan1.md` – `plan9.md` | Pending | - |
 | `docs/vitals-tracker-v1/review.md` | Skipped (`--skip review`) | - |
@@ -287,11 +287,11 @@ flowchart TD
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: PAUSED — GOAL & INITIAL DAG COMPLETE; AWAITING USER REVIEW, ROLE MODEL SELECTION & RESUME**
+**CURRENT GATE: RESUMED — ROLE MODEL PREFLIGHT IN PROGRESS (OpenCode `subagent`)**
 
 Resume steps:
-1. [ ] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
-2. [ ] Run MAW Section 1.2 sequential role model selection preflight (**Researcher → Planner → Worker**, Antigravity tier choices: `inherit`, `flash`, `pro`, or `none`) and persist `setup_status: complete` + `resume_gate: authorized`.
+1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
+2. [ ] Run MAW Section 1.2 sequential role model selection preflight (**Researcher → Planner → Worker**, OpenCode `provider/model[#variant]` IDs or `none`) and persist `setup_status: complete` + `resume_gate: authorized`.
 3. [ ] Dispatch Step 2 Technical Researcher subagent (`docs/vitals-tracker-v1/research.md`), reconcile DAG if needed, and update `dag_status: research-reconciled`.
 4. [ ] Execute MAW pipelined DAG loop (`P1` → `P2`‖`P3` → `P4`‖`P5`‖`P6` → `P7`‖`P8` → `P9`): spawn ready planners in foreground parallel, never read `research.md`/`plan*.md` into orchestrator context, pipeline ready workers immediately, and serialize git commits.
 5. [ ] Skip Step 5 Unified Code Review (`--skip review` recorded).
