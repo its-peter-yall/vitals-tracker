@@ -163,3 +163,64 @@ it("rolls back signup if the session insert fails", async () => {
   expect(await fixture!.db.select().from(users)).toEqual([]);
   expect(setCookie).not.toHaveBeenCalled();
 });
+
+async function signUp(body = registration) {
+  const { POST } = await import("@/app/api/auth/signup/route");
+  const response = await POST(jsonRequest("/api/auth/signup", body));
+  expect(response.status).toBe(201);
+  const { user } = await response.json();
+  const token = jar.get(expectedCookie);
+  expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  return { user, token: token! };
+}
+
+it("logs in with a fresh token and returns the same denial for wrong and unknown credentials", async () => {
+  const { POST } = await import("@/app/api/auth/login/route");
+  const { GET } = await import("@/app/api/auth/me/route");
+  const first = await signUp();
+  jar.clear();
+  setCookie.mockClear();
+  const path = "/api/auth/login";
+  for (const body of [
+    { ...credentials, password: "wrong password" },
+    { ...credentials, email: "unknown@example.test" },
+  ]) {
+    const denied = await POST(jsonRequest(path, body));
+    expect(denied.status).toBe(401);
+    expect(await denied.json()).toEqual({ error: "Email or password is incorrect." });
+  }
+  expect((await POST(jsonRequest(path, { ...credentials, userId: first.user.id }))).status).toBe(400);
+  expect(setCookie).not.toHaveBeenCalled();
+  const response = await POST(jsonRequest(path, { ...credentials, email: "CARE@example.test" }));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ user: first.user });
+  expect(jar.get(expectedCookie)).not.toBe(first.token);
+  expect(await (await GET()).json()).toEqual({ user: first.user });
+});
+
+it("logs out idempotently, revokes the presented token, and leaves other sessions alone", async () => {
+  const { POST: login } = await import("@/app/api/auth/login/route");
+  const { POST: logout } = await import("@/app/api/auth/logout/route");
+  const { GET } = await import("@/app/api/auth/me/route");
+  const first = await signUp();
+  expect((await login(jsonRequest("/api/auth/login", credentials))).status).toBe(200);
+  const last = jar.get(expectedCookie)!;
+  expect(last).not.toBe(first.token);
+  vi.stubEnv("NODE_ENV", "production");
+  const path = "/api/auth/logout";
+  expect((await logout(jsonRequest(path, { token: first.token }))).status).toBe(400);
+  const response = await logout(jsonRequest(path, {}));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ ok: true });
+  expect(setCookie).toHaveBeenLastCalledWith(expectedCookie, "", {
+    httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 0,
+  });
+  expect(jar.has(expectedCookie)).toBe(false);
+  const revoked = await fixture!.db.select().from(sessions).where(eq(sessions.tokenHash, digest(last)));
+  expect(revoked).toEqual([]);
+  expect((await logout(jsonRequest(path, {}))).status).toBe(200);
+  jar.set(expectedCookie, last);
+  expect((await GET()).status).toBe(401);
+  jar.set(expectedCookie, first.token);
+  expect((await GET()).status).toBe(200);
+});

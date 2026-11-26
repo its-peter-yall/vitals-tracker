@@ -39,9 +39,20 @@ export async function setSessionCookie(token: string) {
   (await cookies()).set(SESSION_COOKIE, token, cookieOptions(maxAge));
 }
 
-export async function getSessionUser(): Promise<AuthUser | null> {
+async function readSessionToken() {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!token || token.length !== 43 || !tokenPattern.test(token)) return null;
+  return token && token.length === 43 && tokenPattern.test(token) ? token : null;
+}
+
+export async function revokeCurrentSession() {
+  const token = await readSessionToken();
+  if (token) await (await getDb()).delete(sessions).where(eq(sessions.tokenHash, tokenHash(token)));
+  (await cookies()).set(SESSION_COOKIE, "", cookieOptions(0));
+}
+
+export async function getSessionUser(): Promise<AuthUser | null> {
+  const token = await readSessionToken();
+  if (!token) return null;
   const [user] = await (await getDb()).select(publicUserColumns).from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
     .where(and(eq(sessions.tokenHash, tokenHash(token)), gt(sessions.expiresAt, new Date().toISOString())))

@@ -21,7 +21,7 @@ const rules = [
   healthFlag: HealthFlag; nutrientKeys: readonly ImpactNutrientKey[]; message: string;
 }[];
 
-export function evaluateImpact({ dailyTotals, healthFlags }: ImpactInput): ImpactAlert[] {
+export function evaluateImpact({ dailyTotals, healthFlags, customTargets }: ImpactInput): ImpactAlert[] {
   const alerts: ImpactAlert[] = [];
   for (const { healthFlag, nutrientKeys, message } of rules) {
     if (!healthFlags.includes(healthFlag)) continue;
@@ -29,7 +29,10 @@ export function evaluateImpact({ dailyTotals, healthFlags }: ImpactInput): Impac
     for (const nutrientKey of nutrientKeys) {
       const total = readNutrientAmount(dailyTotals, nutrientKey);
       if (total === undefined) continue;
-      const threshold = DEFAULT_IMPACT_THRESHOLDS[nutrientKey];
+      const custom = customTargets && readNutrientAmount(customTargets, nutrientKey);
+      const threshold = custom !== undefined && custom > 0
+        ? custom
+        : DEFAULT_IMPACT_THRESHOLDS[nutrientKey];
       // Treat roundoff from scaling and summing as equality, not a measured excess.
       const floatSlack = 2 * Number.EPSILON * Math.max(total, threshold);
       if (total <= threshold || total - threshold <= floatSlack) continue;

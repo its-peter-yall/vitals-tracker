@@ -78,3 +78,60 @@ it("does not warn when a day exactly reaches the limit before entry display roun
   expect(dailyTotals.totalSugars).toBeCloseTo(35, 12);
   expect(evaluateImpact({ healthFlags: ["diabetes"], dailyTotals })).toEqual([]);
 });
+
+it("uses an explicit override, even if it equals the catalog target, but not a different key's target", () => {
+  const healthFlags = ["diabetes", "hypertension"] as const;
+  const dailyTotals = { totalSugars: 36, addedSugars: 30, sodium: 2200 };
+  const customTargets = Object.freeze({ totalSugars: 45, addedSugars: 50, sodium: 2300 });
+  expect(evaluateImpact({ healthFlags, dailyTotals, customTargets })).toEqual([]);
+
+  const alerts = evaluateImpact({ healthFlags, dailyTotals, customTargets: { totalSugars: 45 } });
+  expect(alerts.map(({ healthFlag, triggers }) => [healthFlag, triggers])).toEqual([
+    ["diabetes", [{ nutrientKey: "addedSugars", total: 30, threshold: 25, unit: "g" }]],
+    ["hypertension", [{ nutrientKey: "sodium", total: 2200, threshold: 2000, unit: "mg" }]],
+  ]);
+});
+
+it("uses lower custom limits only when the limit is exceeded, with no equality false alarms", () => {
+  const healthFlags = ["diabetes", "hypertension"] as const;
+  const customTargets = { totalSugars: 30, addedSugars: 20, sodium: 1500 };
+  expect(evaluateImpact({
+    healthFlags, customTargets, dailyTotals: { totalSugars: 29.9999, addedSugars: 19.9999, sodium: 1499.9999 },
+  })).toEqual([]);
+  expect(evaluateImpact({ healthFlags, customTargets, dailyTotals: { ...customTargets } })).toEqual([]);
+  const alerts = evaluateImpact({
+    healthFlags, customTargets,
+    dailyTotals: { totalSugars: 30.00001, addedSugars: 20.00001, sodium: 1500.00001 },
+  });
+  expect(alerts.flatMap(({ triggers }) => triggers)).toEqual([
+    { nutrientKey: "totalSugars", total: 30.00001, threshold: 30, unit: "g" },
+    { nutrientKey: "addedSugars", total: 20.00001, threshold: 20, unit: "g" },
+    { nutrientKey: "sodium", total: 1500.00001, threshold: 1500, unit: "mg" },
+  ]);
+});
+
+it("treats machine roundoff at a fractional custom limit as equality", () => {
+  const dailyTotals = sumDailyNutrients([{ addedSugars: 0.1 }, { addedSugars: 0.2 }]);
+  expect(dailyTotals.addedSugars).toBeGreaterThan(0.3);
+  expect(evaluateImpact({
+    healthFlags: ["diabetes"], dailyTotals, customTargets: { addedSugars: 0.3 },
+  })).toEqual([]);
+});
+
+it("ignores invalid or inherited custom targets and does not warn on unlogged nutrients", () => {
+  const healthFlags = ["diabetes", "hypertension"] as const;
+  const dailyTotals = { totalSugars: 36, addedSugars: 26, sodium: 2001 };
+  const defaults = evaluateImpact({ healthFlags, dailyTotals });
+  expect(defaults).toHaveLength(2);
+  for (const value of [0, -1, NaN, Infinity, "500", undefined]) {
+    expect(evaluateImpact({
+      healthFlags, dailyTotals, customTargets: { totalSugars: value, addedSugars: value, sodium: value },
+    })).toEqual(defaults);
+  }
+  expect(evaluateImpact({
+    healthFlags, dailyTotals, customTargets: Object.create({ totalSugars: 100, sodium: 9999 }),
+  })).toEqual(defaults);
+  expect(evaluateImpact({
+    healthFlags, dailyTotals: { protein: 90 }, customTargets: { totalSugars: 1, sodium: 1 },
+  })).toEqual([]);
+});

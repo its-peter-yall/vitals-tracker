@@ -6,6 +6,7 @@ export type ImpactNutrientKey = "totalSugars" | "addedSugars" | "sodium";
 export type ImpactInput = Readonly<{
   dailyTotals: NutrientInput;
   healthFlags: readonly HealthFlag[];
+  customTargets?: NutrientInput;
 }>;
 
 export type ImpactTrigger = Readonly<{
