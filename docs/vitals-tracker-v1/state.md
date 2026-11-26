@@ -104,7 +104,7 @@ This is the research-reconciled DAG (`dag_status: research-reconciled`, research
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **P1** | Project Scaffold, Drizzle/Turso Schema, OpenRouter Client & Dual-Chromatic Theme Foundation | R | `package.json`, `next.config.ts`, `tsconfig.json`, `vitest.config.ts`, `vitest.setup.ts`, `drizzle.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `.env.example`, `.gitignore`, `public/manifest.json`, `public/sw.js`, `public/icons/*`, `src/db/index.ts`, `src/db/schema.ts`, `src/db/test-utils.ts`, `src/lib/env.ts`, `src/lib/openrouter/*`, `src/app/layout.tsx`, `src/app/globals.css`, `src/components/theme-provider.tsx`, `src/components/ui/*`, `tests/db-schema.test.ts` | [x] `5433c0b` | [x] Complete | 8 commits: `59fbab9`…`53eabe7`, `d1c2029` |
 | **P2** | Lightweight Auth, Persistent Sessions & User Settings | P1 | `src/lib/auth/*`, `src/app/api/auth/**`, `src/app/api/settings/route.ts`, `src/app/(auth)/login/page.tsx`, `src/app/(auth)/signup/page.tsx`, `src/app/settings/page.tsx`, `tests/auth.test.ts` | [#] In progress | [ ] Pending | - |
-| **P3** | Canonical Nutrient Catalog, Scaling Math & Condition Impact Engine | P1 | `src/lib/nutrients/*`, `src/lib/impact/*`, `tests/nutrients.test.ts`, `tests/impact-engine.test.ts` | [#] In progress | [ ] Pending | - |
+| **P3** | Canonical Nutrient Catalog, Scaling Math & Condition Impact Engine | P1 | `src/lib/nutrients/*`, `src/lib/impact/*`, `tests/nutrients.test.ts`, `tests/impact-engine.test.ts` | [x] `04975e6` | [#] In progress | - |
 | **P4** | Curated Food Catalog & Hybrid Food Resolver API | P2, P3 | `src/db/seed-foods.ts`, `src/lib/foods/*`, `src/app/api/foods/**`, `tests/food-resolver.test.ts` | [ ] Pending | [ ] Pending | - |
 | **P5** | Curated Medicines, OpenRouter Vision Scanner, OCR Fallback & "My Medicines" API | P2, P3 | `src/db/seed-medicines.ts`, `src/lib/medicines/*`, `src/app/api/medicines/**`, `tests/medicine-recognizer.test.ts`, `tests/medicines-api.test.ts` | [ ] Pending | [ ] Pending | - |
 | **P6** | Trackers CRUD, Intake Logs, Daily Summary & Analytics API | P2, P3 | `src/lib/trackers/*`, `src/lib/analytics/*`, `src/app/api/trackers/**`, `tests/trackers-api.test.ts`, `tests/analytics.test.ts` | [ ] Pending | [ ] Pending | - |
@@ -193,6 +193,7 @@ flowchart TD
 - `src/lib/impact/engine.ts`, `src/lib/impact/types.ts`
 - `tests/nutrients.test.ts`, `tests/impact-engine.test.ts`  
 **Scope:** Define all selectable Vitamins (A, B1, B2, B3, B6, B9, B12, C, D, E, K), Minerals (Calcium, Iron, Magnesium, Potassium, Sodium, Zinc, Iodine, Selenium, Phosphorus), and Essential Nutrients (Protein, Fiber, Total Sugars, Added Sugars, Carbohydrates, Healthy Fats, Water) with units and default adult targets; implement `g`/`ml` scaling (`1 ml = 1 g` fallback), supplement dose scaling, full-day nutrient aggregation, and `impact-engine` rules evaluating full daily totals for `diabetes` (sugar load) and `hypertension` (sodium load) cautions—strictly directional nutritional messages, never simulated clinical readings.  
+**Plan contract notes (`plan3.md`, `04975e6`):** canonical units — `vitaminA` mcg RAE, `vitaminB3` mg NE, `vitaminB9` mcg DFE, `vitaminB12`/`vitaminD`/`vitaminK`/`iodine`/`selenium` mcg; `vitaminB1`/`vitaminB2`/`vitaminB6`/`vitaminC`/`vitaminE`/`calcium`/`iron`/`magnesium`/`potassium`/`sodium`/`zinc`/`phosphorus` mg; `protein`/`fiber`/`totalSugars`/`addedSugars`/`carbohydrates`/`healthyFats`/`water` g. Diabetes cautions trigger above 35 g total sugars **or** 25 g added sugars; hypertension above 2,000 mg sodium. Equality and floating-point noise do not trigger; alerts evaluate full-day totals before display rounding and never report clinical readings.  
 **Exit gate:** `npx vitest run tests/nutrients.test.ts tests/impact-engine.test.ts` passes with 100% coverage of scaling edge cases, rounding, combined food + supplement sums, and Diabetes/High-BP threshold boundaries with zero false alarms.
 
 ### P4 — Curated Food Catalog & Hybrid Food Resolver API
@@ -225,6 +226,7 @@ flowchart TD
 - `src/app/api/trackers/[id]/summary/route.ts`, `src/app/api/trackers/[id]/analytics/route.ts`
 - `tests/trackers-api.test.ts`, `tests/analytics.test.ts`  
 **Scope:** Implement tracker creation (selected vitamins/minerals/essential nutrients + targets + health flags), editing/deletion, intake logging (`food` by `g`/`ml` and `medicine` by `dose`, storing full immutable `computedNutrientsJson` and local `logDate`), quantity editing & Undo deletion, daily summary endpoint (filtering progress cards to `tracker_nutrients` while evaluating `impact-engine` across full daily totals), and `7d`/`30d` analytics rollup endpoint (daily series, average completion, Needs Attention vs. On Track, caution days, medicine adherence). Strictly enforce `userId` ownership on every route.  
+**P6 integration risk from P3:** `tracker_nutrients` currently stores `dailyTarget` without explicit-vs-default provenance. P6 must preserve that distinction (an additive schema flag such as `isCustomTarget`/`targetSource`, or an equivalent API/UI contract) so untouched catalog defaults never override the impact engine's caution thresholds; comparing values alone misses explicit targets equal to defaults. Any additive schema change is an exception to P1 file ownership and must be backward-compatible, tested, and noted in the P6 plan.  
 **Exit gate:** `npx vitest run tests/trackers-api.test.ts tests/analytics.test.ts` passes, verifying cross-user isolation, local-date bucketing, food + supplement aggregation, Undo deletion, condition alert generation, and `7d`/`30d` analytics math.
 
 ### P7 — Trackers Home, Guided Wizard, Daily View, Food/Medicine Logging & Confirm Card UI
@@ -303,14 +305,14 @@ flowchart TD
 | `docs/vitals-tracker-v1/plan1.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `5433c0b` |
 | P1 implementation (scaffold, schema, OpenRouter, theme) | Complete; gate verified | `59fbab9`, `3c55468`, `872d32e`, `270973f`, `78202f6`, `4108f70`, `53eabe7`, `d1c2029` |
 | `docs/vitals-tracker-v1/plan2.md` | In progress (`openai/gpt-6.2-sol#xhigh`) | - |
-| `docs/vitals-tracker-v1/plan3.md` | In progress (`openai/gpt-6.2-sol#xhigh`) | - |
+| `docs/vitals-tracker-v1/plan3.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `04975e6` |
 | `docs/vitals-tracker-v1/plan4.md` – `plan9.md` | Pending | - |
 | `docs/vitals-tracker-v1/review.md` | Skipped (`--skip review`) | - |
 | `docs/vitals-tracker-v1/final_report.md` | Pending | - |
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: P2/P3 PLANNING IN PROGRESS — PARALLEL BACKEND PLANNERS (`openai/gpt-6.2-sol#xhigh`; P2 `ses_de8e481a6ffexe7UxJ5M3RbLEq`, P3 `ses_de8e481a6ffdMkJlY1xmGudw10`)**
+**CURRENT GATE: P3 WORKER IN PROGRESS — P2 PLANNER STILL RUNNING**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
