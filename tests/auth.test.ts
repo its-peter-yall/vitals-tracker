@@ -224,3 +224,42 @@ it("logs out idempotently, revokes the presented token, and leaves other session
   jar.set(expectedCookie, first.token);
   expect((await GET()).status).toBe(200);
 });
+
+it("rejects unauthenticated settings reads and writes before accepting input", async () => {
+  const { GET, PATCH } = await import("@/app/api/settings/route");
+  expect((await GET()).status).toBe(401);
+  expect((await PATCH(jsonRequest("/api/settings", { theme: "dark" }, "PATCH"))).status).toBe(401);
+});
+
+it("updates only the authenticated user's settings and accepts presets, custom IDs, and reset", async () => {
+  const { GET, PATCH } = await import("@/app/api/settings/route");
+  const { VISION_MODELS } = await import("@/lib/openrouter/models");
+  vi.stubEnv("OPENROUTER_API_KEY", "fixture-key-not-for-output");
+  vi.stubEnv("OPENROUTER_VISION_MODEL", "custom/deployment-default");
+  const a = await signUp();
+  const b = await signUp({ ...registration, email: "second@example.test" });
+  const patch = (body: unknown) => PATCH(jsonRequest("/api/settings", body, "PATCH"));
+  expect((await patch({ theme: "light", userId: a.user.id })).status).toBe(400);
+  expect((await patch({})).status).toBe(400);
+  expect((await patch({ theme: "sepia" })).status).toBe(400);
+  expect((await patch({ visionModel: "bad model" })).status).toBe(400);
+  expect((await patch({ visionModel: "x".repeat(129) })).status).toBe(400);
+  const preset = await patch({ theme: "dark", visionModel: "openai/gpt-4o" });
+  expect(preset.status).toBe(200);
+  expect(preset.headers.get("Cache-Control")).toBe("no-store");
+  expect(await preset.json()).toEqual({
+    settings: { theme: "dark", visionModel: "openai/gpt-4o" },
+    visionModels: [...VISION_MODELS], defaultVisionModel: "custom/deployment-default",
+  });
+  const custom = await patch({ visionModel: " custom/vision:free " });
+  expect(custom.status).toBe(200);
+  expect(await (await GET()).json()).toMatchObject({ settings: { theme: "dark", visionModel: "custom/vision:free" } });
+  jar.set(expectedCookie, a.token);
+  expect(await (await GET()).json()).toMatchObject({ settings: { theme: "system", visionModel: null } });
+  jar.set(expectedCookie, b.token);
+  const reset = await patch({ visionModel: null });
+  expect(reset.status).toBe(200);
+  expect(await reset.json()).toMatchObject({ settings: { theme: "dark", visionModel: null } });
+  expect(await fixture!.db.select({ theme: users.theme, visionModel: users.visionModel })
+    .from(users).where(eq(users.id, b.user.id))).toEqual([{ theme: "dark", visionModel: null }]);
+});
