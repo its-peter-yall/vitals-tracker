@@ -107,7 +107,7 @@ This is the research-reconciled DAG (`dag_status: research-reconciled`, research
 | **P1** | Project Scaffold, Drizzle/Turso Schema, OpenRouter Client & Dual-Chromatic Theme Foundation | R | `package.json`, `next.config.ts`, `tsconfig.json`, `vitest.config.ts`, `vitest.setup.ts`, `drizzle.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `.env.example`, `.gitignore`, `public/manifest.json`, `public/sw.js`, `public/icons/*`, `src/db/index.ts`, `src/db/schema.ts`, `src/db/test-utils.ts`, `src/lib/env.ts`, `src/lib/openrouter/*`, `src/app/layout.tsx`, `src/app/globals.css`, `src/components/theme-provider.tsx`, `src/components/ui/*`, `tests/db-schema.test.ts` | [x] `5433c0b` | [x] Complete | 8 commits: `59fbab9`…`53eabe7`, `d1c2029` |
 | **P2** | Lightweight Auth, Persistent Sessions & User Settings | P1 | `src/lib/auth/*`, `src/app/api/auth/**`, `src/app/api/settings/route.ts`, `src/app/(auth)/login/page.tsx`, `src/app/(auth)/signup/page.tsx`, `src/app/settings/page.tsx`, `tests/auth.test.ts` | [x] `537de94` | [x] Complete | `979647d`, `3542f65`, `ba09ac6`, `301e5fa` (shared), `69993e5`, `2b5c839`, `6f37158` |
 | **P3** | Canonical Nutrient Catalog, Scaling Math & Condition Impact Engine | P1 | `src/lib/nutrients/*`, `src/lib/impact/*`, `tests/nutrients.test.ts`, `tests/impact-engine.test.ts` | [x] `04975e6` | [x] Complete | `dacffe6`, `4afe41d`, `7ca0438`, `3d1d602`, `301e5fa` (shared) |
-| **P4** | Curated Food Catalog & Hybrid Food Resolver API | P2, P3 | `src/db/seed-foods.ts`, `src/lib/foods/*`, `src/app/api/foods/**`, `tests/food-resolver.test.ts` | [x] `74d09bd` | [ ] Pending (queued) | - |
+| **P4** | Curated Food Catalog & Hybrid Food Resolver API | P2, P3 | `src/db/seed-foods.ts`, `src/lib/foods/*`, `src/app/api/foods/**`, `tests/food-resolver.test.ts` | [x] `74d09bd` | [x] Complete | `93afb17`, `4132493`, `73ef8e0`, `b79da51`, `c7b44d9`, `25e7a3d`, `8654ec2`, `c17693e` |
 | **P5** | Curated Medicines, OpenRouter Vision Scanner, OCR Fallback & "My Medicines" API | P2, P3 | `src/db/seed-medicines.ts`, `src/lib/medicines/*`, `src/app/api/medicines/**`, `tests/medicine-recognizer.test.ts`, `tests/medicines-api.test.ts` | [x] `03f32c0` | [ ] Pending (queued) | - |
 | **P6** | Trackers CRUD, Intake Logs, Daily Summary & Analytics API | P2, P3 | `src/lib/trackers/*`, `src/lib/analytics/*`, `src/app/api/trackers/**`, `tests/trackers-api.test.ts`, `tests/analytics.test.ts` | [x] `87393e9` | [x] Complete | `7ee795d`, `849eca1`, `0db6346`, `69199b9`, `a372e4a`, `cf47f91`, `44f0a1b`, `27890dd` |
 | **P7** | Trackers Home, Guided Wizard, Daily View, Food/Medicine Logging & Confirm Card UI | P4, P5, P6 | `src/app/page.tsx`, `src/app/trackers/new/page.tsx`, `src/app/trackers/[id]/layout.tsx`, `src/app/trackers/[id]/page.tsx`, `src/components/wizard/*`, `src/components/trackers/*`, `src/components/logging/*`, `tests/tracker-ui.test.tsx` | [ ] Pending | [ ] Pending | - |
@@ -210,6 +210,7 @@ flowchart TD
 - `tests/food-resolver.test.ts`  
 **Scope:** Curate ~100+ everyday regional home-cooked & global staple foods with common aliases (e.g., *roti/chapati*, *curd/dahi*, *idli*, *dal*, *milk*, *banana*, *rice*, *egg*, *spinach/palak*) and per-100g/ml profiles. Implement `GET /api/foods/search` (user saved/recent + local alias match), `POST /api/foods/resolve` (open food DB lookup → OpenRouter AI fallback returning *Estimated* draft validated by `zod`), and `POST /api/foods` (save/cache user-confirmed food scoped by `userId`).  
 **Plan contract notes (`plan4.md`, `74d09bd`):** 129 curated profiles; authenticated local-only search via `GET /api/foods/search`. `POST /api/foods/resolve` checks saved and curated foods, then Open Food Facts, optional USDA, then OpenRouter; AI results are labeled **Estimated**; resolve never saves or logs. `POST /api/foods` caches explicit confirmations per user, normalized name, and unit; the first confirmation wins; intake logging remains separate. Open Food Facts limits are enforced per process; deployments sharing an outbound IP need a shared limiter.  
+**Worker result:** 11/11 food-resolver tests, typecheck pass, `npm test` 75/75, build/lint pass. One fixture correction: added `bhindi masala` to recipe 17's aliases because the plan's test required it. P9 follow-up: verify Node CLI module resolution for the `.ts`-extension relative imports used by `seed-foods.ts` on Node 24/Windows.  
 **Exit gate:** `npx vitest run tests/food-resolver.test.ts` passes with mocked external/OpenRouter fixtures, confirming alias matching, waterfall order, Zod rejection of malformed AI payloads, and automatic confirmed-food caching.
 
 ### P5 — Curated Medicines, OpenRouter Vision Scanner, OCR Fallback & "My Medicines" API
@@ -265,6 +266,7 @@ flowchart TD
 - `tests/e2e-flows.test.ts`
 - `README.md`  
 **Scope:** Wire idempotent `npm run db:seed` combining `seed-foods.ts` and `seed-medicines.ts` (works on both local SQLite and Turso); write end-to-end integration tests covering the complete lifecycle (signup → guided tracker wizard → food `g`/`ml` log → Vision scan & confirm supplement + prescription → 1-tap repeat medicine log → Diabetes & High-BP alert evaluation → `7d`/`30d` analytics → Undo & edit); author `README.md` covering local SQLite setup, Turso env vars, OpenRouter API key & vision model config, and phone home-screen PWA install steps.  
+**P4 follow-up:** verify Node 24/Windows module resolution for the `.ts`-extension relative imports used by `seed-foods.ts` and the seed runner; use the supported Node TypeScript/loader approach or adjust only the import specifiers without changing the curated profiles.  
 **Exit gate:** `npm test`, `npm run typecheck`, `npm run lint`, and `npm run build` all pass with zero errors.
 
 ## Acceptance coverage
@@ -315,6 +317,7 @@ flowchart TD
 | P1 implementation (scaffold, schema, OpenRouter, theme) | Complete; gate verified | `59fbab9`, `3c55468`, `872d32e`, `270973f`, `78202f6`, `4108f70`, `53eabe7`, `d1c2029` |
 | P2 implementation (auth, sessions, settings) | Complete; gate verified | `979647d`, `3542f65`, `ba09ac6`, `301e5fa` (shared), `69993e5`, `2b5c839`, `6f37158` |
 | P3 implementation (nutrients, calculator, impact engine) | Complete; gate verified | `dacffe6`, `4afe41d`, `7ca0438`, `3d1d602`, `301e5fa` (shared) |
+| P4 implementation (food catalog and resolver) | Complete; gate verified | `93afb17`, `4132493`, `73ef8e0`, `b79da51`, `c7b44d9`, `25e7a3d`, `8654ec2`, `c17693e` |
 | P6 implementation (trackers, logs, summary, analytics) | Complete; gate verified | `7ee795d`, `849eca1`, `0db6346`, `69199b9`, `a372e4a`, `cf47f91`, `44f0a1b`, `27890dd` |
 | `docs/vitals-tracker-v1/plan2.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `537de94` |
 | `docs/vitals-tracker-v1/plan3.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `04975e6` |
@@ -327,7 +330,7 @@ flowchart TD
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: P4 WORKER READY; P5 QUEUED; MANUAL P7/P8 PLANNER HANDOFFS AWAITING USER**
+**CURRENT GATE: P4 COMPLETE — P5 WORKER DISPATCHING; MANUAL P7/P8 PLANNER HANDOFFS AWAITING USER**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
