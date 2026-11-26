@@ -60,3 +60,30 @@ it("seeds stable curated staples in SQLite without duplication", async () => {
     client.close();
   }
 });
+
+it("seeds at least 110 real foods including regional aliases and recipe profiles", async () => {
+  const { seedFoods } = await import("@/db/seed-foods");
+  const { scaleFoodNutrients } = await import("@/lib/nutrients/calculator");
+  const { db, client } = await createTestDb();
+  try {
+    await seedFoods(db);
+    const rows = await db.select().from(foods);
+    expect(rows.length).toBeGreaterThanOrEqual(110);
+    expect(new Set(rows.map((row) => normalizeFoodText(row.name))).size).toBe(rows.length);
+    for (const alias of ["roti", "chapati", "idli", "dal", "dahi", "palak", "bhindi masala", "khichri"]) {
+      expect(rows.some((row) => row.aliasesJson.includes(alias)), alias).toBe(true);
+    }
+    const dal = rows.find((row) => row.aliasesJson.includes("dal"))!;
+    expect(dal.nutrientsPer100Json.sodium).toBeGreaterThan(150);
+    expect(scaleFoodNutrients({
+      defaultUnit: dal.defaultUnit, nutrientsPer100: dal.nutrientsPer100Json,
+    }, 50, "g").sodium).toBeCloseTo(dal.nutrientsPer100Json.sodium / 2, 10);
+    expect(rows.find((row) => row.aliasesJson.includes("sambhar"))?.nutrientsPer100Json)
+      .not.toHaveProperty("totalSugars");
+    expect(rows.find((row) => row.aliasesJson.includes("chai"))).toMatchObject({
+      defaultUnit: "ml", nutrientsPer100Json: { addedSugars: 3.992 },
+    });
+  } finally {
+    client.close();
+  }
+});

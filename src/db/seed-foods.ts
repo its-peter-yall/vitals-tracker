@@ -145,8 +145,80 @@ const staples = stapleText.split("\n").map((line) => {
     density ? "ml" : "g", per100) };
 });
 
+// App reference recipes, not lab assays. Ingredients are approximate edible weights in a
+// 100 g finished portion (or ~100 ml at the 1:1 fallback for the three mixed drinks).
+// The ingredient references include salt and water when listed; seasoning, cultivar, and
+// cooking losses vary. Idli/dosa use cooked split peas as an urad nutrition proxy; the
+// legume and vegetable rows are composition proxies, not instructions to make these dishes.
+// Milk in the mixed drink estimates is converted back to a per-100 g basis before weighting.
+// ID | name | aliases | g/ml | NDB ID:grams separated by spaces; salt/added sugar are explicit
+const recipeText = `
+01|Whole-wheat chapati|chapati;roti;phulka;चपाती|g|20649:65 14555:35
+02|Steamed rice idli|idli;idly;rice idli|g|20445:74 16086:25.5 02047:0.5
+03|Plain dosa|dosa;dosai;sada dosa|g|20445:69 16086:26.5 04053:4 02047:0.5
+04|Vegetable sambar|sambhar;sambar;saambaar|g|16102:30 11529:15 11124:10 11282:10 14555:32.5 04053:2 02047:0.5
+05|Lentil dal tadka|dal;dhal;daal;dal tadka|g|16070:65 11529:12 11282:6 11215:1 14555:12.5 01003:3 02047:0.5
+06|Moong dal (home-cooked)|moong dal;mung dal|g|16081:69 11529:8 11216:1 14555:19.5 01003:2 02047:0.5
+07|Moong rice khichdi|khichdi;khichri;moong khichdi|g|20445:56 16081:33 14555:8.5 01003:2 02047:0.5
+08|Rajma masala|rajma;kidney bean curry|g|16033:55 11529:23 11282:12 11215:1 14555:5.4 04053:3 02047:0.6
+09|Chana masala|chole;channa masala;chickpea curry|g|16057:62 11529:21 11282:10 11216:1 14555:2.4 04053:3 02047:0.6
+10|Aloo gobi|alu gobi;potato cauliflower sabzi|g|11365:40 11135:46 11282:7 11529:3 04053:3.4 02047:0.6
+11|Jeera rice|cumin rice;jeera chawal|g|20445:96.5 02014:0.5 01003:2.6 02047:0.4
+12|Curd rice|dahi chawal;thayir sadam|g|20445:61 01116:34 14555:3 04053:1.6 02047:0.4
+13|Lemon rice|chitranna;elumichai sadam|g|20445:89 09152:5 16087:3 04053:2.5 02047:0.5
+14|Coconut chutney|nariyal chutney;thengai chutney|g|12104:52 16057:8 14555:35.4 11670:2 04053:2 02047:0.6
+15|Aloo matar|aloo mutter;potato and pea curry|g|11365:46 11305:30 11529:13 11282:7 04053:3.4 02047:0.6
+16|Baingan bharta|baigan bharta;eggplant bharta|g|11210:68 11529:14 11282:12 11215:1 04053:4.4 02047:0.6
+17|Bhindi masala|okra masala;bhindi sabzi;bhindi masala|g|11279:69 11282:15 11529:11 04053:4.4 02047:0.6
+18|Cucumber raita|raita;kheera raita|g|01116:74 11205:24 02014:0.5 11165:1 02047:0.5
+19|Sweet milk chai|chai;milk tea;masala chai|ml|14355:60 01211:36 19335:4
+20|Plain unsweetened lassi|lassi;plain lassi|ml|01116:69 14555:31
+21|Salted chaas|chaas;chhach;spiced buttermilk|ml|01116:34 14555:65.2 02014:0.4 02047:0.4
+22|Dal palak|spinach dal;palak dal|g|16070:55 11457:25 11529:10 14555:6.5 01003:3 02047:0.5
+23|Gajar matar|carrot and pea sabzi;gajar mutter|g|11124:53 11305:37 11282:6 04053:3.5 02047:0.5
+24|Home-style egg curry|egg curry;anda curry|g|01129:47 11529:26 11282:16 14555:6.4 11216:1 04053:3 02047:0.6
+`.trim();
+
+const ndbProfiles = new Map(staples.map(({ ndb, row }) => [ndb, row.nutrientsPer100Json]));
+const densityByNdb = new Map(stapleText.split("\n").map((line) => {
+  const [ndb, , , density] = line.split("|");
+  return [ndb, density ? Number(density) : 1] as const;
+}));
+const regional = recipeText.split("\n").map((line) => {
+  const [id, name, aliases, unit, parts] = line.split("|");
+  const ingredients = parts.split(" ").map((part) => {
+    const [ndb, grams] = part.split(":");
+    const amounts = ndbProfiles.get(ndb);
+    const density = densityByNdb.get(ndb);
+    if (!amounts || !density || !Number.isFinite(Number(grams)) || Number(grams) <= 0) {
+      throw new Error(`Invalid recipe ingredient in ${name}: ${part}`);
+    }
+    return { ndb, grams: Number(grams), amounts, density };
+  });
+  if (Math.abs(ingredients.reduce((sum, item) => sum + item.grams, 0) - 100) > 0.00001) {
+    throw new Error(`Recipe weights must sum to 100: ${name}`);
+  }
+  const per100: NutrientMap = {};
+  for (const key of keys) {
+    let sum = 0;
+    let complete = true;
+    for (const { amounts, grams, density } of ingredients) {
+      const value = amounts[key];
+      if (value === undefined) { complete = false; break; }
+      sum += value * grams / (100 * density);
+    }
+    if (complete) per100[key] = rounded(sum);
+  }
+  const sugar = ingredients.find(({ ndb }) => ndb === "19335");
+  if (sugar?.amounts.totalSugars !== undefined) {
+    per100.addedSugars = rounded(sugar.amounts.totalSugars * sugar.grams / 100);
+  }
+  return seedRow(`00000000-0000-8000-8001-${id.padStart(12, "0")}`, name, aliases,
+    unit === "ml" ? "ml" : "g", per100);
+});
+
 export async function seedFoods(db: Db): Promise<void> {
-  const rows = staples.map(({ row }) => row);
+  const rows = [...staples.map(({ row }) => row), ...regional];
   for (let i = 0; i < rows.length; i += 40) {
     await db.insert(foods).values(rows.slice(i, i + 40)).onConflictDoNothing({ target: foods.id });
   }
