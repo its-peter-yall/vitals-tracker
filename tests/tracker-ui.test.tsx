@@ -281,3 +281,35 @@ describe("Task 4: 4-step guided create tracker wizard", () => {
     expect(nav.push).toHaveBeenCalledWith("/trackers/tr-new");
   });
 });
+
+describe("Task 5: client-side medicine image compression", () => {
+  it("computes bounded dimensions, rejects unsupported types, and compresses to JPEG under 400KB", async () => {
+    const { compressMedicineImage, computeTargetDimensions } = await import(
+      "@/components/logging/image-compress"
+    );
+
+    expect(computeTargetDimensions(4000, 2000, 1024)).toEqual({ width: 1024, height: 512 });
+    expect(computeTargetDimensions(800, 600, 1024)).toEqual({ width: 800, height: 600 });
+
+    const badFile = new File(["<svg/>"], "bad.svg", { type: "image/svg+xml" });
+    await expect(compressMedicineImage(badFile)).rejects.toThrow(/JPEG, PNG, or WebP/i);
+
+    const source = new File([new Uint8Array(600_000)], "strip.png", { type: "image/png" });
+    const qualities: number[] = [];
+    const compressed = await compressMedicineImage(source, {
+      decode: async () => ({ width: 2048, height: 1024, close: vi.fn() }),
+      encode: async (width, height, quality) => {
+        qualities.push(quality);
+        expect(width).toBe(1024);
+        expect(height).toBe(512);
+        // First quality returns >400KB to verify step-down, second returns <400KB
+        const size = quality > 0.6 ? 450_000 : 220_000;
+        return new Blob([new Uint8Array(size)], { type: "image/jpeg" });
+      },
+    });
+
+    expect(qualities).toEqual([0.7, 0.55]);
+    expect(compressed.type).toBe("image/jpeg");
+    expect(compressed.size).toBeLessThanOrEqual(400_000);
+  });
+});
