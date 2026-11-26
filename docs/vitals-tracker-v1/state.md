@@ -36,6 +36,7 @@ delegation:
 - Mandatory phases: Brainstorming, planning, worker execution, and final verification remain required.
 - Current authorization: **RESUMED** via `/resume` on 2026-11-26; goal and initial DAG accepted. Role preflight and Step 2 research are complete; P1 planning is ready.
 - File preservation rules: Keep `.env.local` (if created by the user for Turso/OpenRouter secrets) strictly untracked in `.gitignore`; never commit API keys or local SQLite database files.
+- Worker context policy (2026-11-26): from the next worker dispatch onward, keep the prompt minimal — plan path, owned files, exit gate, working directory, and TDD/commit/safety rules only. Do not include `research.md`, the full `goal.md`, or a research summary; the planner has already encoded the needed contracts into the plan. Planners still receive `goal.md`, `research.md`, and `state.md` scope.
 
 ## Delegation configuration & handoffs
 
