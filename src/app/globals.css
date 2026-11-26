@@ -1,0 +1,65 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+  --vt-canvas: #f7faf8;
+  --vt-surface: #ffffff;
+  --vt-text: #172625;
+  --vt-muted: #475e58;
+  --vt-border: #738881;
+  --vt-primary: #07594f;
+  --vt-primary-fg: #ffffff;
+  --vt-accent: #8a3915;
+  --vt-accent-fg: #ffffff;
+  --vt-caution: #fff0d8;
+  --vt-caution-fg: #71350f;
+  --vt-focus: #07594f;
+}
+
+html.dark {
+  color-scheme: dark;
+  --vt-canvas: #111c1a;
+  --vt-surface: #1a2a27;
+  --vt-text: #ecf6f3;
+  --vt-muted: #abc4bd;
+  --vt-border: #76958c;
+  --vt-primary: #65e0c4;
+  --vt-primary-fg: #102421;
+  --vt-accent: #ffbc75;
+  --vt-accent-fg: #331b0d;
+  --vt-caution: #412814;
+  --vt-caution-fg: #ffd3a1;
+  --vt-focus: #65e0c4;
+}
+
+@theme {
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --text-base: 1.125rem;
+  --text-base--line-height: 1.55;
+}
+
+@theme inline {
+  --color-canvas: var(--vt-canvas);
+  --color-surface: var(--vt-surface);
+  --color-text: var(--vt-text);
+  --color-muted: var(--vt-muted);
+  --color-border: var(--vt-border);
+  --color-primary: var(--vt-primary);
+  --color-primary-fg: var(--vt-primary-fg);
+  --color-accent: var(--vt-accent);
+  --color-accent-fg: var(--vt-accent-fg);
+  --color-caution: var(--vt-caution);
+  --color-caution-fg: var(--vt-caution-fg);
+  --color-focus: var(--vt-focus);
+}
+
+body {
+  @apply min-h-dvh bg-canvas font-sans text-base text-text;
+  font-variant-numeric: tabular-nums;
+}
+
+:focus-visible {
+  outline: 3px solid var(--vt-focus);
+  outline-offset: 3px;
+}

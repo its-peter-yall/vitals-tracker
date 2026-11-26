@@ -259,3 +259,31 @@ it("aborts a pending OpenRouter request at 20 seconds", async () => {
   expect(signal?.aborted).toBe(true);
   await result;
 });
+
+function luminance(hex: string) {
+  const channels = (hex.match(/[0-9a-f]{2}/gi) ?? []).map((part) => {
+    const value = Number.parseInt(part, 16) / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+}
+
+it("sets 18px tabular typography and AA text colors in both palettes", () => {
+  const css = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+  expect(css).toContain("--text-base: 1.125rem");
+  expect(css).toContain("font-variant-numeric: tabular-nums");
+  for (const selector of [":root", "html.dark"]) {
+    const palette = css.split(`${selector} {`)[1]?.split("}")[0] ?? "";
+    const color = (name: string) => palette.match(new RegExp(`--vt-${name}: (#\\w{6});`))?.[1] ?? "";
+    for (const [fg, bg] of [
+      ["text", "canvas"], ["text", "surface"], ["muted", "canvas"], ["muted", "surface"],
+      ["primary-fg", "primary"], ["primary", "canvas"], ["primary", "surface"],
+      ["accent-fg", "accent"], ["accent", "canvas"], ["accent", "surface"],
+      ["caution-fg", "caution"], ["focus", "surface"], ["focus", "canvas"],
+    ]) {
+      const values = [luminance(color(fg)), luminance(color(bg))];
+      expect((Math.max(...values) + 0.05) / (Math.min(...values) + 0.05))
+        .toBeGreaterThanOrEqual(4.5);
+    }
+  }
+});
