@@ -95,13 +95,13 @@ delegation:
 
 ## Dependency matrix & execution status
 
-This is the pre-research DAG (`dag_status: initial`). After user review, role model selection preflight, and Step 2 Technical Research (`R`), the DAG will be reconciled (`dag_status: research-reconciled`) if research uncovers any package/API adjustments. All parallelizable plans (`P2`‖`P3`, `P4`‖`P5`‖`P6`, and `P7`‖`P8`) have **strictly disjoint file ownership**; `P1` installs all planned npm dependencies upfront in `package.json` so downstream parallel workers never contend on `package.json` or lockfiles.
+This is the research-reconciled DAG (`dag_status: research-reconciled`, research commit `c201c69`). The execution graph is unchanged; P1 ownership and scope absorbed the verified version pins and manual-scaffold constraint. All parallelizable plans (`P2`‖`P3`, `P4`‖`P5`‖`P6`, and `P7`‖`P8`) have **strictly disjoint file ownership**; `P1` installs all planned npm dependencies upfront in `package.json` so downstream parallel workers never contend on `package.json` or lockfiles.
 
 `R` means technical research completed and committed. `P#` worker dependencies mean prerequisite implementation is completed, verified, and committed. Planner dependencies are separately defined so planning and ready workers can overlap.
 
 | Plan ID | Title & Scope | Worker dependencies | Touched files / subsystems | Planner status | Worker status | Commits |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **P1** | Project Scaffold, Drizzle/Turso Schema, OpenRouter Client & Dual-Chromatic Theme Foundation | R | `package.json`, `next.config.*`, `tsconfig.json`, `vitest.config.ts`, `drizzle.config.ts`, `.env.example`, `.gitignore`, `public/manifest.json`, `public/sw.js`, `public/icons/*`, `src/db/index.ts`, `src/db/schema.ts`, `src/db/test-utils.ts`, `src/lib/openrouter/*`, `src/app/layout.tsx`, `src/app/globals.css`, `src/components/theme-provider.tsx`, `src/components/ui/*`, `tests/db-schema.test.ts` | [ ] Pending | [ ] Pending | - |
+| **P1** | Project Scaffold, Drizzle/Turso Schema, OpenRouter Client & Dual-Chromatic Theme Foundation | R | `package.json`, `next.config.ts`, `tsconfig.json`, `vitest.config.ts`, `vitest.setup.ts`, `drizzle.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `.env.example`, `.gitignore`, `public/manifest.json`, `public/sw.js`, `public/icons/*`, `src/db/index.ts`, `src/db/schema.ts`, `src/db/test-utils.ts`, `src/lib/env.ts`, `src/lib/openrouter/*`, `src/app/layout.tsx`, `src/app/globals.css`, `src/components/theme-provider.tsx`, `src/components/ui/*`, `tests/db-schema.test.ts` | [#] In progress | [ ] Pending | - |
 | **P2** | Lightweight Auth, Persistent Sessions & User Settings | P1 | `src/lib/auth/*`, `src/app/api/auth/**`, `src/app/api/settings/route.ts`, `src/app/(auth)/login/page.tsx`, `src/app/(auth)/signup/page.tsx`, `src/app/settings/page.tsx`, `tests/auth.test.ts` | [ ] Pending | [ ] Pending | - |
 | **P3** | Canonical Nutrient Catalog, Scaling Math & Condition Impact Engine | P1 | `src/lib/nutrients/*`, `src/lib/impact/*`, `tests/nutrients.test.ts`, `tests/impact-engine.test.ts` | [ ] Pending | [ ] Pending | - |
 | **P4** | Curated Food Catalog & Hybrid Food Resolver API | P2, P3 | `src/db/seed-foods.ts`, `src/lib/foods/*`, `src/app/api/foods/**`, `tests/food-resolver.test.ts` | [ ] Pending | [ ] Pending | - |
@@ -296,13 +296,14 @@ flowchart TD
 | `docs/vitals-tracker-v1/goal.md` | Approved | `c09da44` |
 | `docs/vitals-tracker-v1/state.md` | Research-reconciled (current update) | `b65964f` + `5b18c8d` + current update |
 | `docs/vitals-tracker-v1/research.md` | Complete (`xai/grok-4.6#xhigh` verified) | `c201c69` |
-| `docs/vitals-tracker-v1/plan1.md` – `plan9.md` | Pending | - |
+| `docs/vitals-tracker-v1/plan1.md` | In progress (`openai/gpt-6.2-sol#xhigh`) | - |
+| `docs/vitals-tracker-v1/plan2.md` – `plan9.md` | Pending | - |
 | `docs/vitals-tracker-v1/review.md` | Skipped (`--skip review`) | - |
 | `docs/vitals-tracker-v1/final_report.md` | Pending | - |
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: P1 PLANNING READY — BACKEND PLANNER `openai/gpt-6.2-sol#xhigh`**
+**CURRENT GATE: P1 PLANNING IN PROGRESS — `openai/gpt-6.2-sol#xhigh` (session `ses_de8fe46c5ffelPHEUDipZhlk5W`)**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
