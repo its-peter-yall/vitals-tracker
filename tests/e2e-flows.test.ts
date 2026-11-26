@@ -1074,3 +1074,27 @@ describe("Task 4: E2E 7d/30d analytics, quantity edit, Undo deletion, and logout
     expect((await listTrackers()).status).toBe(401);
   });
 });
+
+describe("Task 5: README setup, Turso, OpenRouter, PWA, and medical safety documentation", () => {
+  it("documents local SQLite, Turso, OpenRouter vision config, PWA install steps, and medical disclaimer", () => {
+    const readme = readFileSync(path.join(repoRoot, "README.md"), "utf8");
+    for (const required of [
+      "24.15",
+      "file:local.db",
+      "npm run db:push",
+      "npm run db:seed",
+      "libsql://",
+      "DATABASE_AUTH_TOKEN",
+      "OPENROUTER_API_KEY",
+      "OPENROUTER_VISION_MODEL",
+      "google/gemini-2.5-flash",
+      "USDA_FDC_API_KEY",
+      "NEXT_PUBLIC_APP_URL",
+      "Add to Home Screen",
+      "Open Food Facts",
+      "not medical advice",
+    ]) {
+      expect(readme, `README missing: ${required}`).toContain(required);
+    }
+  });
+});
