@@ -54,10 +54,10 @@ delegation:
 | Handoff ID | Role | Plan/phase scope | Prompt reference | Expected artifacts | Status | Returned evidence |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | H-P7-PLAN | planner (manual) | P7 frontend plan | Chat: manual planner prompts, 2026-11-26 | `docs/vitals-tracker-v1/plan7.md` | verified | `6d16aa8`; only `plan7.md` changed |
-| H-P8-PLAN | planner (manual) | P8 frontend plan | Chat: manual planner prompts, 2026-11-26 | `docs/vitals-tracker-v1/plan8.md` | awaiting-user | - |
-| H-P9-PLAN | planner (manual) | P9 integration plan | Chat: manual planner prompts, 2026-11-26 (gated on P7/P8) | `docs/vitals-tracker-v1/plan9.md` | prepared-gated | - |
+| H-P8-PLAN | planner (manual) | P8 frontend plan | Chat: manual planner prompts, 2026-11-26 | `docs/vitals-tracker-v1/plan8.md` | verified | `503936d`; only `plan8.md` changed |
+| H-P9-PLAN | planner (manual) | P9 integration plan | Chat: manual planner prompts, 2026-11-26 | `docs/vitals-tracker-v1/plan9.md` | awaiting-user | - |
 
-*(P7 is verified and its worker is running. P8 and P9 remain manual handoffs. All remaining planning is manual because the GPT planner quota is exhausted; no planner subagent will be spawned. Pending handoffs block their dependents, not independent work. P8's worker can start once `plan8.md` is returned and verified; the P9 prompt is prepared but not active until `plan7.md` and `plan8.md` are verified.)*
+*(P7 is verified and its worker is running; P8 is verified and its worker is queued behind P7. P7 and P8 plans are both committed, so the manual P9 planner handoff is now unblocked and active. All remaining planning is manual because the GPT planner quota is exhausted; no planner subagent will be spawned. P9's worker still waits for P7/P8 workers.)*
 
 ## Workflow milestones
 
@@ -112,8 +112,8 @@ This is the research-reconciled DAG (`dag_status: research-reconciled`, research
 | **P4** | Curated Food Catalog & Hybrid Food Resolver API | P2, P3 | `src/db/seed-foods.ts`, `src/lib/foods/*`, `src/app/api/foods/**`, `tests/food-resolver.test.ts` | [x] `74d09bd` | [x] Complete | `93afb17`, `4132493`, `73ef8e0`, `b79da51`, `c7b44d9`, `25e7a3d`, `8654ec2`, `c17693e` |
 | **P5** | Curated Medicines, OpenRouter Vision Scanner, OCR Fallback & "My Medicines" API | P2, P3 | `src/db/seed-medicines.ts`, `src/lib/medicines/*`, `src/app/api/medicines/**`, `tests/medicine-recognizer.test.ts`, `tests/medicines-api.test.ts` | [x] `03f32c0` | [x] Complete | `2a7f01b`, `8d4225b`, `f46cec4`, `44b545b`, `67c9716`, `81a172f`, `3a731dc`, `63df95a` |
 | **P6** | Trackers CRUD, Intake Logs, Daily Summary & Analytics API | P2, P3 | `src/lib/trackers/*`, `src/lib/analytics/*`, `src/app/api/trackers/**`, `tests/trackers-api.test.ts`, `tests/analytics.test.ts` | [x] `87393e9` | [x] Complete | `7ee795d`, `849eca1`, `0db6346`, `69199b9`, `a372e4a`, `cf47f91`, `44f0a1b`, `27890dd` |
-| **P7** | Trackers Home, Guided Wizard, Daily View, Food/Medicine Logging & Confirm Card UI | P4, P5, P6 | `src/app/page.tsx`, `src/app/trackers/new/page.tsx`, `src/app/trackers/[id]/layout.tsx`, `src/app/trackers/[id]/page.tsx`, `src/components/wizard/*`, `src/components/trackers/*`, `src/components/logging/*`, `tests/tracker-ui.test.tsx` | [x] `6d16aa8` | [#] In progress | - |
-| **P8** | Per-Tracker Analytics Page UI (`7d` / `30d` Dual-Chromatic Charts & Insights) | P6 | `src/app/trackers/[id]/analytics/page.tsx`, `src/components/analytics/*`, `tests/analytics-ui.test.tsx` | [ ] Pending | [ ] Pending | - |
+| **P7** | Trackers Home, Guided Wizard, Daily View, Food/Medicine Logging & Confirm Card UI | P4, P5, P6 | `src/app/page.tsx`, `src/app/trackers/new/page.tsx`, `src/app/trackers/[id]/layout.tsx`, `src/app/trackers/[id]/page.tsx`, `src/components/wizard/*`, `src/components/trackers/*`, `src/components/logging/*`, `tests/tracker-ui.test.tsx` | [x] `6d16aa8` | [x] Complete | `337f0be`, `8b5394f`, `965b5f3`, `182b858`, `31b3a30`, `33119cd`, `71b10ec`, `4c321ec`, `3ed76e9`, `758a709`, `131b132` |
+| **P8** | Per-Tracker Analytics Page UI (`7d` / `30d` Dual-Chromatic Charts & Insights) | P6 | `src/app/trackers/[id]/analytics/page.tsx`, `src/components/analytics/*`, `tests/analytics-ui.test.tsx` | [x] `503936d` | [ ] Pending (queued behind P7) | - |
 | **P9** | Unified Seed Runner, E2E Integration Tests, Setup Docs & Full Verification | P7, P8 | `src/db/seed.ts`, `tests/e2e-flows.test.ts`, `README.md` | [ ] Pending | [ ] Pending | - |
 
 *(Note on statuses: Planner status updates to `[x] <hash>` once the planner commits; Worker status updates to `[x] Complete` once the worker finishes and tests pass).*
@@ -252,6 +252,7 @@ flowchart TD
 - `tests/tracker-ui.test.tsx`  
 **Scope:** Build effortless, minimalistic, dual-chromatic Light/Dark views with ≥48px touch targets: Trackers dashboard (`/`), 4-step Create Tracker Wizard (`/trackers/new`), Tracker layout (`Today` | `Analytics` tabs), Today view (date switcher, Condition Caution Banner, selected-only nutrient cards, Today's Log with edit/delete + 8-second Undo toast), Food modal (recent/search + AI fallback + `g`/`ml` presets + live preview), and Medicine modal (**My Medicines** 1-tap list on top + client-compressed camera/upload scan → **Medicine Confirm Card** with confidence badge, Retake, OCR fallback, and manual entry recovery).  
 **Plan contract notes (`plan7.md`, `6d16aa8`):** P1's global header has no nav links, so P7 adds accessible ≥48px Trackers/Settings links in its own pages. Existing-log deletion Undo uses an 8-second client-deferred DELETE with `keepalive` (flush on supersede/date switch/unmount); newly added logs use the immediate DELETE. `IntakeLog` lacks medicine `defaultDoseLabel`/`category`, so the UI formats "1 dose"/"N doses", surfaces `medicineNotes`, and highlights supplement nutrient amounts. Log PATCH edits quantity only. Food save is a strict schema requiring ≥1 nutrient: drafts strip provider/label/estimated fields, and manual entry falls back to common nutrient fields. Medicine creation rejects empty-string optional text, so blanks normalize to null. The header theme persists to localStorage; `/` reconciles the DB theme only when no local preference exists.  
+**Worker result:** 14/14 tracker UI tests, typecheck pass, `npm test` 107/107, build/lint pass. Fixed `event.currentTarget` nulling inside state updaters; gated the canvas probe on `createImageBitmap`; switched initial loads to reload-token effects for `react-hooks/set-state-in-effect`; typed test fixtures. The tracker layout already used a non-`<main>` wrapper, so no P8 interop change was needed. No analytics files or backend files changed.  
 **Exit gate:** `npx vitest run tests/tracker-ui.test.tsx` and `npm run typecheck` pass, verifying wizard steps, food preview math, Confirm Card explicit confirmation, 1-tap repeat medicine logging, and error recovery states.
 
 ### P8 — Per-Tracker Analytics Page UI (`7d` / `30d` Dual-Chromatic Charts & Insights)
@@ -261,6 +262,7 @@ flowchart TD
 - `src/components/analytics/range-toggle.tsx`, `src/components/analytics/nutrient-trend-chart.tsx`, `src/components/analytics/attention-summary.tsx`, `src/components/analytics/medicine-adherence-card.tsx`, `src/components/analytics/caution-days-strip.tsx`
 - `tests/analytics-ui.test.tsx`  
 **Scope:** Build `/trackers/[id]/analytics` using the dual-chromatic theme tokens in Light & Dark mode: `7 Days` / `30 Days` toggle, clear summary metrics (average goal completion, active days, caution days), **Needs Attention** vs. **On Track** plain-language cards, interactive nutrient chip selector + Recharts trend chart with target line, caution-day indicators, medicine adherence consistency card, and calm empty-state guidance for brand-new trackers.  
+**Plan contract notes (`plan8.md`, `503936d`):** the analytics payload lacks `tracker.name`/`healthFlags`, so P8 renders self-contained with a Back-to-Today link and owns `<main>`; P7's tracker layout must use a non-`<main>` wrapper + `<nav>` (follow-up sent to the P7 worker). The API requires a mandatory local `endDate` (`YYYY-MM-DD`); compute it with local calendar fields, not UTC `toISOString`. `averageCompletionPct` is `0` when `activeDays === 0` but goal nutrients exist, and `null` when only upper-reference nutrients/medicines exist; gate the empty state on `activeDays === 0` and show `—` for null. Trend `dailyTarget` uses catalog defaults (2300 mg sodium, 50 g added sugars) while the impact engine warns at 2000 mg/25 g and `NutrientTrend` exposes no `impactThreshold`; show each alert's exact `trigger.threshold` in `CautionDaysStrip` and label the chart line "Daily limit reference". Historical alert copy says "today"; keep backend strings intact and scope them under explicit calendar-date headings with numeric trigger breakdowns. `medicineAdherence` includes only medicines logged in the window; report "Logged X of N days" without missed-dose/schedule claims. All client files use `import type` only from `@/lib/analytics/types` because it references the server-only tracker service.  
 **Exit gate:** `npx vitest run tests/analytics-ui.test.tsx` and `npm run typecheck` pass, verifying empty, normal, and high-caution analytics rendering states.
 
 ### P9 — Unified Seed Runner, E2E Integration Tests, Setup Docs & Full Verification
@@ -324,19 +326,21 @@ flowchart TD
 | P4 implementation (food catalog and resolver) | Complete; gate verified | `93afb17`, `4132493`, `73ef8e0`, `b79da51`, `c7b44d9`, `25e7a3d`, `8654ec2`, `c17693e` |
 | P5 implementation (medicines, vision, OCR, cabinet) | Complete; gate verified | `2a7f01b`, `8d4225b`, `f46cec4`, `44b545b`, `67c9716`, `81a172f`, `3a731dc`, `63df95a` |
 | P6 implementation (trackers, logs, summary, analytics) | Complete; gate verified | `7ee795d`, `849eca1`, `0db6346`, `69199b9`, `a372e4a`, `cf47f91`, `44f0a1b`, `27890dd` |
+| P7 implementation (wizard, dashboard, Today, food/medicine logging UI) | Complete; gate verified | `337f0be`, `8b5394f`, `965b5f3`, `182b858`, `31b3a30`, `33119cd`, `71b10ec`, `4c321ec`, `3ed76e9`, `758a709`, `131b132` |
 | `docs/vitals-tracker-v1/plan2.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `537de94` |
 | `docs/vitals-tracker-v1/plan3.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `04975e6` |
 | `docs/vitals-tracker-v1/plan4.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `74d09bd` |
 | `docs/vitals-tracker-v1/plan5.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `03f32c0` |
 | `docs/vitals-tracker-v1/plan6.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `87393e9` |
 | `docs/vitals-tracker-v1/plan7.md` | Complete (manual) | `6d16aa8` |
-| `docs/vitals-tracker-v1/plan8.md` – `plan9.md` | Pending (manual) | - |
+| `docs/vitals-tracker-v1/plan8.md` | Complete (manual) | `503936d` |
+| `docs/vitals-tracker-v1/plan9.md` | Pending (manual; planning unblocked) | - |
 | `docs/vitals-tracker-v1/review.md` | Skipped (`--skip review`) | - |
 | `docs/vitals-tracker-v1/final_report.md` | Pending | - |
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: P7 WORKER DISPATCHING — P8/P9 MANUAL PLANS PENDING (H-P8-PLAN, H-P9-PLAN)**
+**CURRENT GATE: P7 COMPLETE — P8 WORKER DISPATCHING; P9 PLAN PENDING (H-P9-PLAN)**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
