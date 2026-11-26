@@ -371,3 +371,27 @@ describe("CautionDaysStrip", () => {
     expect(document.body.textContent).not.toMatch(/mg\/dL|mmHg/i);
   });
 });
+
+describe("MedicineAdherenceCard", () => {
+  it("shows distinct logged days and accessible progress bars for live and historical medicines", async () => {
+    const { MedicineAdherenceCard } = await import("@/components/analytics/medicine-adherence-card");
+    render(<MedicineAdherenceCard items={highCautionAnalyticsFixture.medicineAdherence} range="7d" />);
+
+    expect(screen.getByRole("heading", { name: "Medicine Consistency" })).toBeInTheDocument();
+    expect(screen.getByText("Metformin")).toBeInTheDocument();
+    expect(screen.getByText(/Logged 4 of 7 days \(57%\)/)).toBeInTheDocument();
+    expect(screen.getByText("Old Vitamin")).toBeInTheDocument();
+    expect(screen.getByText(/Logged 2 of 7 days \(29%\)/)).toBeInTheDocument();
+
+    const bar = screen.getByRole("progressbar", { name: "Metformin logged days" });
+    expect(bar).toHaveAttribute("aria-valuenow", "4");
+    expect(bar).toHaveAttribute("aria-valuemax", "7");
+  });
+
+  it("shows a calm empty message when no medicines were logged in the window", async () => {
+    const { MedicineAdherenceCard } = await import("@/components/analytics/medicine-adherence-card");
+    render(<MedicineAdherenceCard items={[]} range="30d" />);
+
+    expect(screen.getByText("No medicines or supplements logged in the last 30 days.")).toBeInTheDocument();
+  });
+});
