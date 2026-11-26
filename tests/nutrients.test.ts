@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { isNutrientKey, NUTRIENT_CATALOG, NUTRIENT_KEYS } from "@/lib/nutrients/catalog";
 import {
-  roundNutrientForDisplay, scaleFoodNutrients, scaleSupplementNutrients,
+  roundNutrientForDisplay, scaleFoodNutrients, scaleSupplementNutrients, sumDailyNutrients,
 } from "@/lib/nutrients/calculator";
 
 it("defines the complete selectable catalog in wizard order", () => {
@@ -100,4 +100,33 @@ it("scales at number precision and rounds explicitly for display only", () => {
   expect(roundNutrientForDisplay(0.00004)).toBe(0);
   expect(roundNutrientForDisplay(2)).toBe(2);
   expect(() => roundNutrientForDisplay(NaN)).toThrow(RangeError);
+});
+
+it("aggregates full-day food and supplement snapshots without altering inputs", () => {
+  const food = Object.freeze(scaleFoodNutrients({
+    defaultUnit: "g", nutrientsPer100: { protein: 4, totalSugars: 6, calcium: 60, sodium: 55 },
+  }, 150, "g"));
+  const supplement = Object.freeze(scaleSupplementNutrients({ calcium: 200, vitaminD: 10 }, 0.5));
+  const snapshots = Object.freeze([food, supplement, Object.freeze({})]);
+  expect(sumDailyNutrients(snapshots)).toEqual({
+    protein: 6, totalSugars: 9, calcium: 190, sodium: 82.5, vitaminD: 5,
+  });
+  expect(food).toEqual({ protein: 6, totalSugars: 9, calcium: 90, sodium: 82.5 });
+  expect(supplement).toEqual({ calcium: 100, vitaminD: 5 });
+});
+
+it("aggregates sparse and empty snapshots and retains only known valid amounts", () => {
+  expect(sumDailyNutrients([])).toEqual({});
+  expect(sumDailyNutrients([{}, {}])).toEqual({});
+  expect(sumDailyNutrients([{ fiber: 0, sodium: NaN, unknown: 10 }, { calcium: 15, iron: -1 }]))
+    .toEqual({ fiber: 0, calcium: 15 });
+  expect(() => sumDailyNutrients([{ iron: Number.MAX_VALUE }, { iron: Number.MAX_VALUE }]))
+    .toThrow(RangeError);
+});
+
+it("aggregates before rounding so tiny logged amounts can add up", () => {
+  const small = scaleSupplementNutrients({ vitaminB12: 0.00004 }, 1);
+  const total = sumDailyNutrients([small, small, small]);
+  expect(total.vitaminB12).toBeCloseTo(0.00012, 14);
+  expect(roundNutrientForDisplay(total.vitaminB12!)).toBe(0.0001);
 });

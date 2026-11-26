@@ -53,3 +53,21 @@ export function roundNutrientForDisplay(amount: number): number {
   }
   return Number(amount.toFixed(4));
 }
+
+export function sumDailyNutrients(snapshots: readonly NutrientInput[]): NutrientMap {
+  const totals: NutrientMap = {};
+  const correction: NutrientMap = {};
+  for (const snapshot of snapshots) {
+    for (const key of NUTRIENT_KEYS) {
+      const amount = readNutrientAmount(snapshot, key);
+      if (amount === undefined) continue;
+      const previous = totals[key] ?? 0;
+      const adjusted = amount - (correction[key] ?? 0);
+      const next = previous + adjusted;
+      if (!Number.isFinite(next)) throw new RangeError(`Daily nutrient total overflow: ${key}`);
+      correction[key] = (next - previous) - adjusted;
+      totals[key] = next;
+    }
+  }
+  return totals;
+}
