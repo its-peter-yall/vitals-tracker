@@ -395,3 +395,54 @@ describe("MedicineAdherenceCard", () => {
     expect(screen.getByText("No medicines or supplements logged in the last 30 days.")).toBeInTheDocument();
   });
 });
+
+describe("NutrientTrendChart", () => {
+  it("renders selectable nutrient chips, displays the target reference, and switches charts on click", async () => {
+    const { NutrientTrendChart } = await import("@/components/analytics/nutrient-trend-chart");
+    const onSelectKey = vi.fn();
+    const { rerender } = render(
+      <NutrientTrendChart
+        trends={normalAnalyticsFixture.trends}
+        selectedKey="protein"
+        onSelectKey={onSelectKey}
+        range="7d"
+      />,
+    );
+
+    const proteinChip = screen.getByRole("button", { name: "Protein" });
+    const sodiumChip = screen.getByRole("button", { name: "Sodium" });
+    expect(proteinChip).toHaveAttribute("aria-pressed", "true");
+    expect(sodiumChip).toHaveAttribute("aria-pressed", "false");
+    expect(proteinChip).toHaveClass("min-h-12");
+    expect(screen.getByText(/Daily goal: 50 g/i)).toBeInTheDocument();
+    expect(document.querySelector("svg")).toBeInTheDocument();
+
+    fireEvent.click(sodiumChip);
+    expect(onSelectKey).toHaveBeenCalledExactlyOnceWith("sodium");
+
+    rerender(
+      <NutrientTrendChart
+        trends={normalAnalyticsFixture.trends}
+        selectedKey="sodium"
+        onSelectKey={onSelectKey}
+        range="7d"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Sodium" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/Daily limit reference: 2,300 mg/i)).toBeInTheDocument();
+  });
+
+  it("renders a calm message for medicine-only trackers with no selected nutrients", async () => {
+    const { NutrientTrendChart } = await import("@/components/analytics/nutrient-trend-chart");
+    render(
+      <NutrientTrendChart
+        trends={[]}
+        selectedKey={null}
+        onSelectKey={vi.fn()}
+        range="7d"
+      />,
+    );
+
+    expect(screen.getByText(/No nutrients are selected for this tracker/i)).toBeInTheDocument();
+  });
+});
