@@ -514,3 +514,205 @@ describe("Task 6: food logging modal", () => {
     });
   });
 });
+
+describe("Task 7: medicine logging modal and confirm card", () => {
+  it("logs a saved My Medicines item in 1 tap without calling scan", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/medicines" && (!init?.method || init.method === "GET")) {
+        return Response.json({
+          medicines: [
+            {
+              id: "med-d3",
+              brandName: "Vitamin D3 1000 IU",
+              genericName: "Cholecalciferol",
+              category: "supplement",
+              defaultDoseLabel: "1 softgel",
+              nutrientsPerDose: { vitaminD: 25 },
+              notes: "Take with food.",
+              scheduleHint: "After breakfast",
+              source: "vision_confirmed",
+              createdAt: "2026-11-25T08:00:00.000Z",
+            },
+          ],
+          curated: [],
+        });
+      }
+      if (url === "/api/trackers/t-1/logs" && init?.method === "POST") {
+        return Response.json(
+          {
+            log: {
+              id: "log-med-1",
+              trackerId: "t-1",
+              logDate: "2026-11-26",
+              loggedAt: "2026-11-26T09:00:00.000Z",
+              entryType: "medicine",
+              foodId: null,
+              medicineId: "med-d3",
+              displayName: "Vitamin D3 1000 IU",
+              quantity: 1,
+              unit: "dose",
+              computedNutrientsJson: { vitaminD: 25 },
+              medicineNotes: "Take with food.",
+            },
+          },
+          { status: 201 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onLogged = vi.fn();
+    const { MedicineLogModal } = await import("@/components/logging/medicine-log-modal");
+    render(
+      <MedicineLogModal
+        trackerId="t-1"
+        logDate="2026-11-26"
+        onClose={vi.fn()}
+        onLogged={onLogged}
+      />,
+    );
+
+    const tapButton = await screen.findByRole("button", { name: /log vitamin d3 1000 iu/i });
+    fireEvent.click(tapButton);
+
+    await waitFor(() => expect(onLogged).toHaveBeenCalledOnce());
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/scan"))).toBe(false);
+    const logCall = fetchMock.mock.calls.find(([u]) => u === "/api/trackers/t-1/logs");
+    expect(JSON.parse(String(logCall?.[1]?.body))).toEqual({
+      entryType: "medicine",
+      medicineId: "med-d3",
+      quantity: 1,
+      unit: "dose",
+      logDate: "2026-11-26",
+    });
+  });
+
+  it("handles unreadable Vision scan -> explicit OCR retry -> Confirm Card review -> save & log", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/medicines" && (!init?.method || init.method === "GET")) {
+        return Response.json({ medicines: [], curated: [] });
+      }
+      if (url === "/api/medicines/scan" && init?.method === "POST") {
+        return Response.json({
+          requiresConfirmation: true,
+          source: "vision",
+          code: "UNREADABLE",
+          draft: null,
+          confidence: { level: "low", score: null },
+          message: "We couldn't read the label. Try a clear photo in even light or enter it manually.",
+          actions: ["retake", "ocr", "manual"],
+        });
+      }
+      if (url === "/api/medicines/scan?mode=ocr" && init?.method === "POST") {
+        return Response.json({
+          requiresConfirmation: true,
+          source: "ocr",
+          code: "REVIEW",
+          draft: {
+            brandName: "Calcium Plus",
+            genericName: "Calcium Carbonate",
+            category: "supplement",
+            defaultDoseLabel: null,
+            nutrientsPerDose: {},
+            notes: null,
+          },
+          confidence: { level: "low", score: null },
+          message: "Double-check the name, dose, and any amounts against the package before saving.",
+          actions: ["retake", "manual"],
+        });
+      }
+      if (url === "/api/medicines" && init?.method === "POST") {
+        return Response.json(
+          {
+            medicine: {
+              id: "med-saved-1",
+              brandName: "Calcium Plus",
+              genericName: "Calcium Carbonate",
+              category: "supplement",
+              defaultDoseLabel: "1 tablet",
+              nutrientsPerDose: { calcium: 500 },
+              notes: null,
+              scheduleHint: null,
+              source: "ocr_confirmed",
+              createdAt: "2026-11-26T09:05:00.000Z",
+            },
+          },
+          { status: 201 },
+        );
+      }
+      if (url === "/api/trackers/t-1/logs" && init?.method === "POST") {
+        return Response.json(
+          {
+            log: {
+              id: "log-cal-1",
+              trackerId: "t-1",
+              logDate: "2026-11-26",
+              loggedAt: "2026-11-26T09:05:00.000Z",
+              entryType: "medicine",
+              foodId: null,
+              medicineId: "med-saved-1",
+              displayName: "Calcium Plus",
+              quantity: 1,
+              unit: "dose",
+              computedNutrientsJson: { calcium: 500 },
+              medicineNotes: null,
+            },
+          },
+          { status: 201 },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onLogged = vi.fn();
+    const { MedicineLogModal } = await import("@/components/logging/medicine-log-modal");
+    render(
+      <MedicineLogModal
+        trackerId="t-1"
+        logDate="2026-11-26"
+        onClose={vi.fn()}
+        onLogged={onLogged}
+      />,
+    );
+
+    const fileInput = await screen.findByLabelText(/scan medicine photo/i);
+    const jpegFile = new File([Uint8Array.of(0xff, 0xd8, 0xff, 0x00)], "label.jpg", {
+      type: "image/jpeg",
+    });
+    fireEvent.change(fileInput, { target: { files: [jpegFile] } });
+
+    // Unreadable recovery view with Retake, Try Local OCR, Enter Manually
+    expect(await screen.findByText(/couldn't read the label/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retake photo/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /try local ocr/i }));
+
+    // Confirm Card appears with Low confidence badge; never auto-logged
+    expect(await screen.findByText(/low — please double-check/i)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([u, i]) => u === "/api/medicines" && i?.method === "POST")).toBe(false);
+
+    // Fill missing dose label and add Calcium 500 mg
+    fireEvent.change(screen.getByLabelText(/default dose/i), { target: { value: "1 tablet" } });
+    fireEvent.change(screen.getByLabelText(/add nutrient/i), { target: { value: "calcium" } });
+    fireEvent.click(screen.getByRole("button", { name: /add amount/i }));
+    fireEvent.change(screen.getByLabelText(/calcium \(mg\)/i), { target: { value: "500" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /confirm & log/i }));
+    await waitFor(() => expect(onLogged).toHaveBeenCalledOnce());
+
+    const postMed = fetchMock.mock.calls.find(([u, i]) => u === "/api/medicines" && i?.method === "POST");
+    expect(JSON.parse(String(postMed?.[1]?.body))).toEqual({
+      brandName: "Calcium Plus",
+      genericName: "Calcium Carbonate",
+      category: "supplement",
+      defaultDoseLabel: "1 tablet",
+      nutrientsPerDose: { calcium: 500 },
+      notes: null,
+      scheduleHint: null,
+      source: "ocr_confirmed",
+    });
+  });
+});
