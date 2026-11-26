@@ -716,3 +716,152 @@ describe("Task 7: medicine logging modal and confirm card", () => {
     });
   });
 });
+
+describe("Task 8: daily tracker Today view, date switcher, and 8-second Undo", () => {
+  it("loads tracker summary & logs, shows caution banner and selected cards, switches local date, and supports 8s Undo", async () => {
+    const today = (await import("@/components/trackers/local-date")).formatLocalDate();
+    const yesterday = (await import("@/components/trackers/local-date")).addLocalDays(today, -1);
+
+    const tracker = {
+      id: "t-1",
+      name: "Amma's Daily Care",
+      healthFlags: ["diabetes"],
+      createdAt: "2026-11-20T00:00:00.000Z",
+      updatedAt: "2026-11-20T00:00:00.000Z",
+      nutrients: [
+        {
+          nutrientKey: "protein",
+          label: "Protein",
+          unit: "g",
+          dailyTarget: 50,
+          isCustomTarget: false,
+          sortOrder: 0,
+          targetKind: "goal",
+        },
+      ],
+    };
+
+    let currentLogs = [
+      {
+        id: "log-existing",
+        trackerId: "t-1",
+        logDate: today,
+        loggedAt: "2026-11-26T07:30:00.000Z",
+        entryType: "food",
+        foodId: "f-1",
+        medicineId: null,
+        displayName: "Oatmeal",
+        quantity: 100,
+        unit: "g",
+        computedNutrientsJson: { protein: 2.54, totalSugars: 40 },
+        medicineNotes: null,
+      },
+    ];
+
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/trackers/t-1") return Response.json({ tracker });
+      if (url.startsWith("/api/trackers/t-1/summary?date=")) {
+        const date = new URL(url, "https://app.test").searchParams.get("date")!;
+        return Response.json({
+          date,
+          progress: [
+            {
+              ...tracker.nutrients[0],
+              amount: date === today ? 2.54 : 0,
+              hasAmount: date === today,
+            },
+          ],
+          alerts:
+            date === today
+              ? [
+                  {
+                    healthFlag: "diabetes",
+                    message: "Sugar logged today is above the tracker’s reference.",
+                    triggers: [{ nutrientKey: "totalSugars", total: 40, threshold: 35, unit: "g" }],
+                  },
+                ]
+              : [],
+        });
+      }
+      if (url.startsWith("/api/trackers/t-1/logs?date=") && (!init?.method || init.method === "GET")) {
+        const date = new URL(url, "https://app.test").searchParams.get("date")!;
+        return Response.json({ logs: date === today ? currentLogs : [] });
+      }
+      if (url === "/api/medicines") {
+        return Response.json({
+          medicines: [
+            {
+              id: "med-1",
+              brandName: "B12 Drop",
+              genericName: null,
+              category: "supplement",
+              defaultDoseLabel: "1 drop",
+              nutrientsPerDose: { vitaminB12: 2.4 },
+              notes: null,
+              scheduleHint: null,
+              source: "manual",
+              createdAt: "2026-11-20T00:00:00.000Z",
+            },
+          ],
+          curated: [],
+        });
+      }
+      if (url === "/api/trackers/t-1/logs" && init?.method === "POST") {
+        const added = {
+          id: "log-added",
+          trackerId: "t-1",
+          logDate: today,
+          loggedAt: "2026-11-26T09:00:00.000Z",
+          entryType: "medicine",
+          foodId: null,
+          medicineId: "med-1",
+          displayName: "B12 Drop",
+          quantity: 1,
+          unit: "dose",
+          computedNutrientsJson: { vitaminB12: 2.4 },
+          medicineNotes: null,
+        };
+        currentLogs = [added, ...currentLogs];
+        return Response.json({ log: added }, { status: 201 });
+      }
+      if (url === "/api/trackers/t-1/logs/log-added" && init?.method === "DELETE") {
+        currentLogs = currentLogs.filter((l) => l.id !== "log-added");
+        return Response.json({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { default: TrackerTodayPage } = await import("@/app/trackers/[id]/page");
+    render(<TrackerTodayPage />);
+
+    expect(await screen.findByRole("heading", { name: "Amma's Daily Care" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /nutritional caution/i })).toBeInTheDocument();
+    expect(screen.getByText("2.54 / 50 g")).toBeInTheDocument();
+    expect(screen.getByText("Oatmeal")).toBeInTheDocument();
+
+    // Log a medicine via 1-tap My Medicines -> UndoToast appears -> tap Undo calls DELETE
+    fireEvent.click(screen.getByRole("button", { name: /\+ add medicine/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /log b12 drop/i }));
+
+    expect((await screen.findAllByText(/logged b12 drop/i)).length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([u, i]) => u === "/api/trackers/t-1/logs/log-added" && i?.method === "DELETE",
+        ),
+      ).toBe(true),
+    );
+
+    // Switch to Yesterday -> fetches yesterday's local date
+    fireEvent.click(screen.getByRole("button", { name: "Yesterday" }));
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([u]) => u === `/api/trackers/t-1/summary?date=${yesterday}`),
+      ).toBe(true),
+    );
+  });
+});
