@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import type { Db } from "@/db";
 import { foods, intakeLogs, medicines, trackerNutrients, trackers } from "@/db/schema";
 import { isNutrientKey, NUTRIENT_CATALOG } from "@/lib/nutrients/catalog";
@@ -181,4 +181,31 @@ export function createLog(db: Db, userId: string, trackerId: string, input: Crea
     }).returning();
     return logView(row, medicine.notes);
   });
+}
+
+function ownedLog(db: Reader, userId: string, trackerId: string, logId: string) {
+  return and(logScope(userId, trackerId), eq(intakeLogs.id, logId),
+    inArray(intakeLogs.trackerId, db.select({ id: trackers.id }).from(trackers)
+      .where(trackerScope(userId, trackerId))));
+}
+
+export function updateLogQuantity(db: Db, userId: string, trackerId: string, logId: string, quantity: number) {
+  return db.transaction(async (tx) => {
+    const scope = ownedLog(tx, userId, trackerId, logId);
+    const [current] = await tx.select().from(intakeLogs).where(scope).limit(1);
+    if (!current) return null;
+    const computedNutrientsJson = quantity === current.quantity ? current.computedNutrientsJson :
+      checkedSnapshot(() => scaleSupplementNutrients(current.computedNutrientsJson, quantity / current.quantity));
+    const [edited] = await tx.update(intakeLogs).set({ quantity, computedNutrientsJson })
+      .where(scope).returning();
+    if (!edited) return null;
+    const medicine = edited.medicineId ? await findMedicine(tx, userId, edited.medicineId) : undefined;
+    return logView(edited, medicine?.notes ?? null);
+  });
+}
+
+export async function deleteLog(db: Db, userId: string, trackerId: string, logId: string) {
+  const [row] = await db.delete(intakeLogs).where(ownedLog(db, userId, trackerId, logId))
+    .returning({ id: intakeLogs.id });
+  return Boolean(row);
 }

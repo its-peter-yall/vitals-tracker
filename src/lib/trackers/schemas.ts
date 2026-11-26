@@ -33,3 +33,5 @@ export function dateFromRequest(request: Request) {
   const dates = new URL(request.url).searchParams.getAll("date");
   return localDateSchema.safeParse(dates.length === 1 ? dates[0] : undefined);
 }
+
+export const patchLogSchema = z.strictObject({ quantity: positiveAmount });

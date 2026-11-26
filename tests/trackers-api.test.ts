@@ -289,3 +289,65 @@ it("rejects spoofed or invalid log writes and hides private source items and tra
   expect((await POST(request(path, "POST", foodBody(food.id)), ctx(id))).status).toBe(401);
   expect(await db().select().from(intakeLogs)).toHaveLength(1);
 });
+
+const logCtx = (id: string, logId: string) => ({ params: Promise.resolve({ id, logId }) });
+
+it("rescales the original snapshot after source removal and undoes a new log by deleting it", async () => {
+  const { PATCH, DELETE } = await import("@/app/api/trackers/[id]/logs/[logId]/route");
+  const { GET } = await import("@/app/api/trackers/[id]/logs/route");
+  const { id } = await newTracker();
+  const { food, supplement } = await catalog();
+  const drink = await addLog(id, foodBody(food.id));
+  const vitamin = await addLog(id, medicineBody(supplement.id));
+  await db().delete(foods).where(eq(foods.id, food.id));
+  const path = `${root}/${id}/logs/${drink.id}`;
+  const bad = await PATCH(request(path, "PATCH", { quantity: 150, logDate: "2026-11-26" }), logCtx(id, drink.id));
+  expect(bad.status).toBe(400);
+  const edited = await PATCH(request(path, "PATCH", { quantity: 150 }), logCtx(id, drink.id));
+  expect(edited.status).toBe(200);
+  expect((await edited.json()).log).toEqual({
+    ...drink, foodId: null, quantity: 150,
+    computedNutrientsJson: { vitaminC: 15, addedSugars: 45, sodium: 150, protein: 3 },
+  });
+  const vitaminPath = `${root}/${id}/logs/${vitamin.id}`;
+  expect((await (await PATCH(request(vitaminPath, "PATCH", { quantity: 0.5 }), logCtx(id, vitamin.id))).json()).log)
+    .toMatchObject({ computedNutrientsJson: { vitaminC: 12.5 }, quantity: 0.5, unit: "dose" });
+  const undo = await DELETE(request(vitaminPath, "DELETE"), logCtx(id, vitamin.id));
+  expect(undo.status).toBe(200);
+  expect(await undo.json()).toEqual({ ok: true });
+  expect((await DELETE(request(vitaminPath, "DELETE"), logCtx(id, vitamin.id))).status).toBe(404);
+  const day = await GET(request(`${root}/${id}/logs?date=${date}`), ctx(id));
+  expect((await day.json()).logs.map((log: { id: string }) => log.id)).toEqual([drink.id]);
+});
+
+it("blocks log mutations across both tenant and tracker boundaries", async () => {
+  const { PATCH, DELETE } = await import("@/app/api/trackers/[id]/logs/[logId]/route");
+  const { id } = await newTracker();
+  const sameUserOther = await newTracker();
+  const { food } = await catalog();
+  const log = await addLog(id, foodBody(food.id));
+  // Even SQL rows with a mismatched user and tracker must not be visible or mutable.
+  const [mismatch] = await db().insert(intakeLogs).values({
+    trackerId: id, userId: bob.id, entryType: "food", logDate: date, loggedAt: iso, displayName: "Private",
+    quantity: 100, unit: "g", computedNutrientsJson: {},
+  }).returning();
+  token = bob.token;
+  const other = await newTracker();
+  for (const [method, handler, body] of [
+    ["PATCH", PATCH, { quantity: 25 }], ["DELETE", DELETE, undefined],
+  ] as const) {
+    for (const [actorToken, trackerId, logId] of [
+      [bob.token, id, log.id], [bob.token, other.id, log.id], [bob.token, id, mismatch.id],
+      [alice.token, sameUserOther.id, log.id], [alice.token, id, mismatch.id],
+    ]) {
+      token = actorToken;
+      const response = await handler(request(`${root}/${trackerId}/logs/${logId}`, method, body), logCtx(trackerId, logId));
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: "Log not found." });
+    }
+    token = undefined;
+    expect((await handler(request(`${root}/${id}/logs/${log.id}`, method, body), logCtx(id, log.id))).status).toBe(401);
+  }
+  expect(await db().select().from(intakeLogs)).toHaveLength(2);
+  expect((await db().select().from(intakeLogs).where(eq(intakeLogs.id, log.id)))[0].quantity).toBe(100);
+});
