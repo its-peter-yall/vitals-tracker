@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { IntakeLog, TrackerNutrient } from "@/lib/trackers/service";
 
 const nav = {
   push: vi.fn(),
@@ -315,7 +316,7 @@ describe("Task 5: client-side medicine image compression", () => {
 });
 
 describe("Task 6: food logging modal", () => {
-  const trackerNutrients = [
+  const trackerNutrients: readonly TrackerNutrient[] = [
     {
       nutrientKey: "protein" as const,
       label: "Protein",
@@ -741,7 +742,7 @@ describe("Task 8: daily tracker Today view, date switcher, and 8-second Undo", (
       ],
     };
 
-    let currentLogs = [
+    let currentLogs: IntakeLog[] = [
       {
         id: "log-existing",
         trackerId: "t-1",
@@ -808,7 +809,7 @@ describe("Task 8: daily tracker Today view, date switcher, and 8-second Undo", (
         });
       }
       if (url === "/api/trackers/t-1/logs" && init?.method === "POST") {
-        const added = {
+        const added: IntakeLog = {
           id: "log-added",
           trackerId: "t-1",
           logDate: today,
@@ -863,5 +864,89 @@ describe("Task 8: daily tracker Today view, date switcher, and 8-second Undo", (
         fetchMock.mock.calls.some(([u]) => u === `/api/trackers/t-1/summary?date=${yesterday}`),
       ).toBe(true),
     );
+  });
+});
+
+describe("Task 9: Trackers Home dashboard", () => {
+  it("shows calm sign-in welcome and scope notice when unauthenticated", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({ error: "Please sign in." }, { status: 401 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { ThemeProvider } = await import("@/components/theme-provider");
+    const { default: HomePage } = await import("@/app/page");
+    render(
+      <ThemeProvider>
+        <HomePage />
+      </ThemeProvider>,
+    );
+
+    expect(await screen.findByRole("link", { name: /sign in/i })).toHaveAttribute("href", "/login");
+    expect(screen.getByRole("link", { name: /create account/i })).toHaveAttribute("href", "/signup");
+    expect(screen.getByText(/not medical advice/i)).toBeInTheDocument();
+  });
+
+  it("reconciles account theme on fresh device, lists trackers, and supports inline delete", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/auth/me") {
+        return Response.json({
+          user: { id: "u-1", email: "amma@example.test", name: "Amma", theme: "dark", visionModel: null },
+        });
+      }
+      if (url === "/api/trackers") {
+        return Response.json({
+          trackers: [
+            {
+              id: "t-1",
+              name: "Amma's Daily Care",
+              healthFlags: ["hypertension"],
+              createdAt: "2026-11-26T00:00:00.000Z",
+              updatedAt: "2026-11-26T00:00:00.000Z",
+              nutrients: [
+                {
+                  nutrientKey: "sodium",
+                  label: "Sodium",
+                  unit: "mg",
+                  dailyTarget: 2000,
+                  isCustomTarget: true,
+                  sortOrder: 0,
+                  targetKind: "upper",
+                },
+              ],
+            },
+          ],
+        });
+      }
+      if (url === "/api/trackers/t-1" && init?.method === "DELETE") {
+        return Response.json({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { ThemeProvider } = await import("@/components/theme-provider");
+    const { THEME_STORAGE_KEY } = await import("@/components/ui/theme-init");
+    const { default: HomePage } = await import("@/app/page");
+    render(
+      <ThemeProvider>
+        <HomePage />
+      </ThemeProvider>,
+    );
+
+    expect(await screen.findByText("Amma's Daily Care")).toBeInTheDocument();
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+    expect(screen.getByRole("link", { name: /\+ new tracker/i })).toHaveAttribute(
+      "href",
+      "/trackers/new",
+    );
+    expect(screen.getByRole("link", { name: /settings/i })).toHaveAttribute("href", "/settings");
+    expect(screen.getByRole("link", { name: /open today/i })).toHaveAttribute("href", "/trackers/t-1");
+
+    // Inline delete confirmation
+    fireEvent.click(screen.getByRole("button", { name: /delete amma's daily care/i }));
+    fireEvent.click(screen.getByRole("button", { name: /confirm delete/i }));
+    await waitFor(() => expect(screen.queryByText("Amma's Daily Care")).not.toBeInTheDocument());
   });
 });
