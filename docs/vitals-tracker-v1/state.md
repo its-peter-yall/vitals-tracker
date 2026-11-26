@@ -103,8 +103,8 @@ This is the research-reconciled DAG (`dag_status: research-reconciled`, research
 | Plan ID | Title & Scope | Worker dependencies | Touched files / subsystems | Planner status | Worker status | Commits |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **P1** | Project Scaffold, Drizzle/Turso Schema, OpenRouter Client & Dual-Chromatic Theme Foundation | R | `package.json`, `next.config.ts`, `tsconfig.json`, `vitest.config.ts`, `vitest.setup.ts`, `drizzle.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `.env.example`, `.gitignore`, `public/manifest.json`, `public/sw.js`, `public/icons/*`, `src/db/index.ts`, `src/db/schema.ts`, `src/db/test-utils.ts`, `src/lib/env.ts`, `src/lib/openrouter/*`, `src/app/layout.tsx`, `src/app/globals.css`, `src/components/theme-provider.tsx`, `src/components/ui/*`, `tests/db-schema.test.ts` | [x] `5433c0b` | [x] Complete | 8 commits: `59fbab9`…`53eabe7`, `d1c2029` |
-| **P2** | Lightweight Auth, Persistent Sessions & User Settings | P1 | `src/lib/auth/*`, `src/app/api/auth/**`, `src/app/api/settings/route.ts`, `src/app/(auth)/login/page.tsx`, `src/app/(auth)/signup/page.tsx`, `src/app/settings/page.tsx`, `tests/auth.test.ts` | [#] In progress | [ ] Pending | - |
-| **P3** | Canonical Nutrient Catalog, Scaling Math & Condition Impact Engine | P1 | `src/lib/nutrients/*`, `src/lib/impact/*`, `tests/nutrients.test.ts`, `tests/impact-engine.test.ts` | [x] `04975e6` | [#] In progress | - |
+| **P2** | Lightweight Auth, Persistent Sessions & User Settings | P1 | `src/lib/auth/*`, `src/app/api/auth/**`, `src/app/api/settings/route.ts`, `src/app/(auth)/login/page.tsx`, `src/app/(auth)/signup/page.tsx`, `src/app/settings/page.tsx`, `tests/auth.test.ts` | [x] `537de94` | [x] Complete | `979647d`, `3542f65`, `ba09ac6`, `301e5fa` (shared), `69993e5`, `2b5c839`, `6f37158` |
+| **P3** | Canonical Nutrient Catalog, Scaling Math & Condition Impact Engine | P1 | `src/lib/nutrients/*`, `src/lib/impact/*`, `tests/nutrients.test.ts`, `tests/impact-engine.test.ts` | [x] `04975e6` | [x] Complete | `dacffe6`, `4afe41d`, `7ca0438`, `3d1d602`, `301e5fa` (shared) |
 | **P4** | Curated Food Catalog & Hybrid Food Resolver API | P2, P3 | `src/db/seed-foods.ts`, `src/lib/foods/*`, `src/app/api/foods/**`, `tests/food-resolver.test.ts` | [ ] Pending | [ ] Pending | - |
 | **P5** | Curated Medicines, OpenRouter Vision Scanner, OCR Fallback & "My Medicines" API | P2, P3 | `src/db/seed-medicines.ts`, `src/lib/medicines/*`, `src/app/api/medicines/**`, `tests/medicine-recognizer.test.ts`, `tests/medicines-api.test.ts` | [ ] Pending | [ ] Pending | - |
 | **P6** | Trackers CRUD, Intake Logs, Daily Summary & Analytics API | P2, P3 | `src/lib/trackers/*`, `src/lib/analytics/*`, `src/app/api/trackers/**`, `tests/trackers-api.test.ts`, `tests/analytics.test.ts` | [ ] Pending | [ ] Pending | - |
@@ -154,7 +154,7 @@ flowchart TD
 
 - Dispatch independent planners concurrently in foreground parallel (`P2`‖`P3`, `P4`‖`P5`‖`P6`, `P7`‖`P8`).
 - Start each ready worker immediately when its plan is committed and worker prerequisites are met; do not wait for unrelated planners.
-- Workers with disjoint write ownership execute in parallel (`P2`‖`P3`, `P4`‖`P5`‖`P6`, `P7`‖`P8`).
+- Workers with disjoint write ownership may be implemented in parallel, but because worker subagents commit to the same git index, run implementation workers sequentially (one at a time) to serialize commits. The 2026-11-26 P2/P3 parallel run produced mixed commit `301e5fa`; do not repeat that. Planners may still run concurrently because they commit only their own plan documents.
 - Serialize git staging/commits, even for disjoint workers, to avoid shared-index collisions.
 - A changed upstream contract pauses affected downstream work until plans/types are reconciled.
 
@@ -184,6 +184,8 @@ flowchart TD
 - `src/app/(auth)/login/page.tsx`, `src/app/(auth)/signup/page.tsx`, `src/app/settings/page.tsx`
 - `tests/auth.test.ts`  
 **Scope:** Implement account registration/login/logout with salted `scrypt` password hashes and hashed session tokens in `sessions`, long-lived `HttpOnly` / `SameSite=Lax` cookies, strict `requireUser()` helper returning `401` for unauthenticated requests, and `/settings` UI for Light/Dark/System theme switching, OpenRouter vision model selection (allow-listed vision models + custom model ID), and the plain-language medical disclaimer.  
+**Plan contract notes (`plan2.md`, `537de94`):** `requireUser()` returns `{ ok: true, user }` or `{ ok: false, response }` with a `401`; downstream queries scope by `user.id`. Sessions expire after 90 days without renewal; cookies are `Secure` in production; logout revokes only the presented session. Settings `PATCH` accepts a partial update; `visionModel: null` restores the deployment default. P7 owns auth/settings links and theme reconciliation on the tracker landing page. Rate-limit signup/login at the production ingress (out of application scope).  
+**Worker result:** `tests/auth.test.ts` 12/12, typecheck pass, `npm test` 47/47. Settings envelope is `{ settings, visionModels, defaultVisionModel }`; cookie name is `vt_session`, host-only/HttpOnly/SameSite=Lax/Secure in production. Browser smoke was not run; defer to P7/P9.  
 **Exit gate:** `npx vitest run tests/auth.test.ts` passes, verifying signup, duplicate-email rejection, login/logout, persistent session resolution, unauthorized `401` enforcement, and settings update persistence.
 
 ### P3 — Canonical Nutrient Catalog, Scaling Math & Condition Impact Engine
@@ -194,6 +196,7 @@ flowchart TD
 - `tests/nutrients.test.ts`, `tests/impact-engine.test.ts`  
 **Scope:** Define all selectable Vitamins (A, B1, B2, B3, B6, B9, B12, C, D, E, K), Minerals (Calcium, Iron, Magnesium, Potassium, Sodium, Zinc, Iodine, Selenium, Phosphorus), and Essential Nutrients (Protein, Fiber, Total Sugars, Added Sugars, Carbohydrates, Healthy Fats, Water) with units and default adult targets; implement `g`/`ml` scaling (`1 ml = 1 g` fallback), supplement dose scaling, full-day nutrient aggregation, and `impact-engine` rules evaluating full daily totals for `diabetes` (sugar load) and `hypertension` (sodium load) cautions—strictly directional nutritional messages, never simulated clinical readings.  
 **Plan contract notes (`plan3.md`, `04975e6`):** canonical units — `vitaminA` mcg RAE, `vitaminB3` mg NE, `vitaminB9` mcg DFE, `vitaminB12`/`vitaminD`/`vitaminK`/`iodine`/`selenium` mcg; `vitaminB1`/`vitaminB2`/`vitaminB6`/`vitaminC`/`vitaminE`/`calcium`/`iron`/`magnesium`/`potassium`/`sodium`/`zinc`/`phosphorus` mg; `protein`/`fiber`/`totalSugars`/`addedSugars`/`carbohydrates`/`healthyFats`/`water` g. Diabetes cautions trigger above 35 g total sugars **or** 25 g added sugars; hypertension above 2,000 mg sodium. Equality and floating-point noise do not trigger; alerts evaluate full-day totals before display rounding and never report clinical readings.  
+**Worker result:** targeted suite 19/19, `npm run typecheck` pass, `npm test` 47/47 at worker completion. **Commit hygiene deviation:** P3 Task 5 files were swept into P2's `301e5fa` during a concurrent index-lock race; the diff is correct. P2 has later commits on top, so history was not rewritten while P2 was active. The mixed commit is documented here; final verification runs on the tree, not on commit boundaries.  
 **Exit gate:** `npx vitest run tests/nutrients.test.ts tests/impact-engine.test.ts` passes with 100% coverage of scaling edge cases, rounding, combined food + supplement sums, and Diabetes/High-BP threshold boundaries with zero false alarms.
 
 ### P4 — Curated Food Catalog & Hybrid Food Resolver API
@@ -304,7 +307,9 @@ flowchart TD
 | `docs/vitals-tracker-v1/research.md` | Complete (`xai/grok-4.6#xhigh` verified) | `c201c69` |
 | `docs/vitals-tracker-v1/plan1.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `5433c0b` |
 | P1 implementation (scaffold, schema, OpenRouter, theme) | Complete; gate verified | `59fbab9`, `3c55468`, `872d32e`, `270973f`, `78202f6`, `4108f70`, `53eabe7`, `d1c2029` |
-| `docs/vitals-tracker-v1/plan2.md` | In progress (`openai/gpt-6.2-sol#xhigh`) | - |
+| P2 implementation (auth, sessions, settings) | Complete; gate verified | `979647d`, `3542f65`, `ba09ac6`, `301e5fa` (shared), `69993e5`, `2b5c839`, `6f37158` |
+| P3 implementation (nutrients, calculator, impact engine) | Complete; gate verified | `dacffe6`, `4afe41d`, `7ca0438`, `3d1d602`, `301e5fa` (shared) |
+| `docs/vitals-tracker-v1/plan2.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `537de94` |
 | `docs/vitals-tracker-v1/plan3.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `04975e6` |
 | `docs/vitals-tracker-v1/plan4.md` – `plan9.md` | Pending | - |
 | `docs/vitals-tracker-v1/review.md` | Skipped (`--skip review`) | - |
@@ -312,7 +317,7 @@ flowchart TD
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: P3 WORKER IN PROGRESS — P2 PLANNER STILL RUNNING**
+**CURRENT GATE: P2/P3 COMPLETE — DISPATCH P4/P5/P6 PLANNERS IN PARALLEL (`openai/gpt-6.2-sol#xhigh`)**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
