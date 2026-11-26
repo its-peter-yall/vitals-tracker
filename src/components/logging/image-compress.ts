@@ -96,7 +96,7 @@ export async function compressMedicineImage(
 
   // Skip canvas pipeline in non-canvas environments (e.g., jsdom) when no custom encoder is injected.
   if (!deps?.encode) {
-    if (typeof document === "undefined") {
+    if (typeof document === "undefined" || typeof createImageBitmap !== "function") {
       if (file.size <= SERVER_MAX_BYTES) return file;
       throw new Error("This photo is larger than 2 MB. Try taking a closer photo.");
     }
