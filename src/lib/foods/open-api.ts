@@ -139,3 +139,76 @@ export function createOpenFoodFactsLookup(now = () => Date.now()) {
 }
 
 export const lookupOpenFoodFacts = createOpenFoodFactsLookup();
+
+const fdcResponseSchema = z.object({ foods: z.array(z.unknown()) });
+const fdcItemSchema = z.object({
+  description: z.string(),
+  dataType: z.enum(["Foundation", "SR Legacy"]),
+  foodNutrients: z.array(z.unknown()),
+});
+const numberField = z.union([z.string(), z.number()]);
+const fdcAmountSchema = z.object({
+  nutrientId: z.number().int().optional(),
+  nutrientNumber: numberField.optional(),
+  number: numberField.optional(),
+  unitName: z.string(),
+  value: z.unknown().optional(),
+  amount: z.unknown().optional(),
+});
+const fdcNutrients = [
+  ["protein", 1003, "203", "G"], ["carbohydrates", 1005, "205", "G"],
+  ["fiber", 1079, "291", "G"], ["totalSugars", 2000, "269", "G"],
+  ["addedSugars", 1235, "539", "G"], ["water", 1051, "255", "G"],
+  ["calcium", 1087, "301", "MG"], ["iron", 1089, "303", "MG"],
+  ["magnesium", 1090, "304", "MG"], ["phosphorus", 1091, "305", "MG"],
+  ["potassium", 1092, "306", "MG"], ["sodium", 1093, "307", "MG"],
+  ["zinc", 1095, "309", "MG"], ["selenium", 1103, "317", "UG"],
+  ["vitaminA", 1106, "320", "UG"], ["vitaminE", 1109, "323", "MG"],
+  ["vitaminD", 1114, "328", "UG"], ["vitaminC", 1162, "401", "MG"],
+  ["vitaminB1", 1165, "404", "MG"], ["vitaminB2", 1166, "405", "MG"],
+  ["vitaminB6", 1175, "415", "MG"], ["vitaminB12", 1178, "418", "UG"],
+  ["vitaminK", 1185, "430", "UG"], ["vitaminB9", 1190, "435", "UG"],
+] as const;
+
+function fdcCandidate(raw: unknown, query: string): OnlineDraft | null {
+  const result = fdcItemSchema.safeParse(raw);
+  if (!result.success) return null;
+  const { description, foodNutrients } = result.data;
+  if (!match(query, description)) return null;
+  const nutrientsPer100: NutrientMap = {};
+  for (const rawAmount of foodNutrients) {
+    const parsed = fdcAmountSchema.safeParse(rawAmount);
+    if (!parsed.success) continue;
+    const row = parsed.data;
+    const tuple = fdcNutrients.find(([, id, number]) => row.nutrientId !== undefined
+      ? row.nutrientId === id : String(row.nutrientNumber ?? row.number) === number);
+    if (!tuple) continue;
+    const [key, , , unit] = tuple;
+    const actualUnit = row.unitName.trim().toUpperCase().replace(/[µμΜ]/g, "U").replace(/^MCG$/, "UG");
+    const value = amount(row.value ?? row.amount);
+    if (actualUnit === unit && value !== undefined && nutrientsPer100[key] === undefined) {
+      nutrientsPer100[key] = value;
+    }
+  }
+  const profile = foodProfileSchema.safeParse({
+    name: description, aliases: lookupAliases(query, description), defaultUnit: "g", nutrientsPer100,
+  });
+  return profile.success ? {
+    ...profile.data, provider: "usda", label: "USDA FoodData Central", estimated: false,
+  } : null;
+}
+
+export async function lookupUsdaFood(query: string): Promise<OnlineDraft | null> {
+  const key = readEnv().USDA_FDC_API_KEY;
+  if (!key) return null;
+  const url = new URL("https://api.nal.usda.gov/fdc/v1/foods/search");
+  url.searchParams.set("api_key", key);
+  url.searchParams.set("query", query);
+  url.searchParams.set("pageSize", "8");
+  url.searchParams.set("dataType", "Foundation,SR Legacy");
+  const { status, body } = await fetchJson(url, AbortSignal.timeout(5_000));
+  if (status !== 200) return null;
+  const parsed = fdcResponseSchema.safeParse(body);
+  return (parsed.data?.foods ?? []).slice(0, 8).map((row) => fdcCandidate(row, query))
+    .filter((row) => row !== null).sort((a, b) => match(query, b.name) - match(query, a.name))[0] ?? null;
+}

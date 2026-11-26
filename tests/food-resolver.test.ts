@@ -158,3 +158,48 @@ it("caps OFF at 10 searches and 15 barcode reads per rolling minute including re
   await lookup("a", "last search");
   expect(fetchMock).toHaveBeenCalledTimes(26);
 });
+
+const fdcFood = {
+  fdcId: 42, dataType: "Foundation", description: "Purple yam, boiled",
+  foodNutrients: [
+    { nutrientId: 1003, nutrientNumber: "203", value: 1.5, unitName: "G" },
+    { nutrientId: 1093, nutrientNumber: "307", value: 15, unitName: "MG" },
+    { nutrientNumber: "435", value: 22, unitName: "UG" },
+    { nutrientId: 1177, nutrientNumber: "417", value: 72, unitName: "UG" },
+    { nutrientId: 1110, value: 80, unitName: "IU" },
+    { nutrientId: 1167, value: 2, unitName: "MG" },
+    { nutrientId: 1004, value: 4, unitName: "G" },
+    { nutrientId: 2000, value: 2, unitName: "G" },
+    { nutrientId: 1235, value: 0, unitName: "G" },
+    { nutrientId: 1178, value: 4, unitName: "MG" }, // wrong unit, do not guess
+  ],
+};
+const fdcSearch = (...results: unknown[]) => Response.json({ foods: results });
+
+it("skips USDA when the key is unset and maps matching USDA search results by ID and unit", async () => {
+  const { lookupUsdaFood } = await import("@/lib/foods/open-api");
+  const fetchMock = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(fdcSearch(
+      { ...fdcFood, dataType: "Branded" },
+      { ...fdcFood, description: "Unrelated boiled potato" },
+      fdcFood,
+    ))
+    .mockResolvedValueOnce(Response.json({}, { status: 429 }));
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubEnv("USDA_FDC_API_KEY", " ");
+  expect(await lookupUsdaFood("purple yam")).toBeNull();
+  expect(fetchMock).not.toHaveBeenCalled();
+  vi.stubEnv("USDA_FDC_API_KEY", "fdc-test-key");
+  expect(await lookupUsdaFood("purple yam")).toEqual({
+    provider: "usda", label: "USDA FoodData Central", estimated: false,
+    name: "Purple yam, boiled", aliases: ["purple yam"], defaultUnit: "g",
+    nutrientsPer100: { protein: 1.5, sodium: 15, vitaminB9: 22, totalSugars: 2, addedSugars: 0 },
+  });
+  const [url, init] = fetchMock.mock.calls[0];
+  expect(new URL(String(url)).searchParams.get("api_key")).toBe("fdc-test-key");
+  expect(new URL(String(url)).searchParams.get("dataType")).toBe("Foundation,SR Legacy");
+  expect(new URL(String(url)).searchParams.get("query")).toBe("purple yam");
+  expect(init?.redirect).toBe("error");
+  expect(await lookupUsdaFood("another query")).toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
