@@ -306,7 +306,7 @@ flowchart TD
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: P1 LINT FIX IN PROGRESS — TYPESCRIPT 6/7 SIDE-BY-SIDE FOR `typescript-eslint`**
+**CURRENT GATE: P1 LINT FIX IN PROGRESS — TYPESCRIPT 6/7 SIDE-BY-SIDE FOR `typescript-eslint` (session `ses_de8e826d6ffef4tccCEhby1GWP`)**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
