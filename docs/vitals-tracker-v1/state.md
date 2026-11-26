@@ -60,7 +60,7 @@ delegation:
 - [x] Step 1: Brainstorming & Goal Alignment (`docs/vitals-tracker-v1/goal.md`; `c09da44`)
 - [x] Step 2: Technical Research (`docs/vitals-tracker-v1/research.md`; `c201c69`)
 - [ ] Step 3: Planning Completed (all plans `plan1.md`–`plan9.md` written and committed)
-- [ ] Step 4: Execution Completed (all workers `P1`–`P9` finished and verified)
+- [#] Step 4: Execution In Progress (P1 complete and verified; P2–P9 pending)
 - [x] Step 5: Unified Code Review (Skipped via `--skip review`)
 - [ ] Step 6: Final Verification & Report (`docs/vitals-tracker-v1/final_report.md`)
 
@@ -102,7 +102,7 @@ This is the research-reconciled DAG (`dag_status: research-reconciled`, research
 
 | Plan ID | Title & Scope | Worker dependencies | Touched files / subsystems | Planner status | Worker status | Commits |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **P1** | Project Scaffold, Drizzle/Turso Schema, OpenRouter Client & Dual-Chromatic Theme Foundation | R | `package.json`, `next.config.ts`, `tsconfig.json`, `vitest.config.ts`, `vitest.setup.ts`, `drizzle.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `.env.example`, `.gitignore`, `public/manifest.json`, `public/sw.js`, `public/icons/*`, `src/db/index.ts`, `src/db/schema.ts`, `src/db/test-utils.ts`, `src/lib/env.ts`, `src/lib/openrouter/*`, `src/app/layout.tsx`, `src/app/globals.css`, `src/components/theme-provider.tsx`, `src/components/ui/*`, `tests/db-schema.test.ts` | [x] `5433c0b` | [#] Lint fix | 7 commits: `59fbab9`…`53eabe7` |
+| **P1** | Project Scaffold, Drizzle/Turso Schema, OpenRouter Client & Dual-Chromatic Theme Foundation | R | `package.json`, `next.config.ts`, `tsconfig.json`, `vitest.config.ts`, `vitest.setup.ts`, `drizzle.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `.env.example`, `.gitignore`, `public/manifest.json`, `public/sw.js`, `public/icons/*`, `src/db/index.ts`, `src/db/schema.ts`, `src/db/test-utils.ts`, `src/lib/env.ts`, `src/lib/openrouter/*`, `src/app/layout.tsx`, `src/app/globals.css`, `src/components/theme-provider.tsx`, `src/components/ui/*`, `tests/db-schema.test.ts` | [x] `5433c0b` | [x] Complete | 8 commits: `59fbab9`…`53eabe7`, `d1c2029` |
 | **P2** | Lightweight Auth, Persistent Sessions & User Settings | P1 | `src/lib/auth/*`, `src/app/api/auth/**`, `src/app/api/settings/route.ts`, `src/app/(auth)/login/page.tsx`, `src/app/(auth)/signup/page.tsx`, `src/app/settings/page.tsx`, `tests/auth.test.ts` | [ ] Pending | [ ] Pending | - |
 | **P3** | Canonical Nutrient Catalog, Scaling Math & Condition Impact Engine | P1 | `src/lib/nutrients/*`, `src/lib/impact/*`, `tests/nutrients.test.ts`, `tests/impact-engine.test.ts` | [ ] Pending | [ ] Pending | - |
 | **P4** | Curated Food Catalog & Hybrid Food Resolver API | P2, P3 | `src/db/seed-foods.ts`, `src/lib/foods/*`, `src/app/api/foods/**`, `tests/food-resolver.test.ts` | [ ] Pending | [ ] Pending | - |
@@ -171,7 +171,8 @@ flowchart TD
 - `tests/db-schema.test.ts`  
 **Scope:** Bootstrap Next.js App Router + Tailwind + Vitest + all planned dependencies (`drizzle-orm`, `drizzle-kit`, `@libsql/client`, `zod`, `recharts`, `lucide-react`, `tesseract.js`, `@testing-library/react`, `jsdom`) so parallel downstream plans never touch `package.json`. **Research-reconciled pins:** Next `16.4.6`, React/React DOM `19.3.1`, TypeScript `7.0.2`, Tailwind `4.3.5`, Zod `4.6.7`, Drizzle ORM `0.45.4`, drizzle-kit `0.31.11`, `@libsql/client` `0.18.0`, Vitest `5.1.2`, ESLint `9.39.5`, `@types/node@24`; Node `>=24.15`; do not use Drizzle v1 RC or `@tursodatabase/*`. `create-next-app` refuses this non-empty repo, so scaffold the files manually. Set `serverExternalPackages: ['@libsql/client', 'libsql', 'tesseract.js']` and use the Node.js runtime. Implement all 7 Drizzle tables, libSQL connection helper (local `file:local.db` + Turso `libsql://`), in-memory test DB harness, server-only OpenRouter client (20s timeout, model allow-list, structured JSON extraction), PWA manifest/service worker registration, and dual-chromatic Light/Dark theme shell (`18px` base typography, `UndoToast`, accessible button/card primitives).  
 **Plan contract notes (`plan1.md`, `5433c0b`):** the temporary `/` fallback must yield to P7's real homepage and be verified by a production build/smoke test; DB factories are async and tests apply Drizzle migration SQL entirely in memory while committed migration history stays outside P1 ownership; deleting a food or medicine clears its log reference without altering the historical nutrient snapshot.  
-**Worker result (7 commits, `59fbab9`…`53eabe7`):** typecheck, build, `tests/db-schema.test.ts` (12/12), `src/components/ui/foundation.test.tsx` (4/4), and `npm test` (16/16) pass. `npm run lint` is blocked because `typescript-eslint@8.74.0` (bundled by `eslint-config-next@16.4.6`) supports TypeScript `<6.1.0`, while the pinned compiler is TypeScript 7.0.2. The official TypeScript 7.0 side-by-side fix is being applied: alias `typescript` to `@typescript/typescript6@6.0.2` for ESLint's API and add `@typescript/native` as an alias to `typescript@7.0.2` so `tsc` remains TS 7.  
+**Worker result (8 commits, `59fbab9`…`53eabe7`, `d1c2029`):** typecheck, build, `tests/db-schema.test.ts` (12/12), `src/components/ui/foundation.test.tsx` (4/4), and `npm test` (16/16) pass. The lint blocker was fixed with the official TypeScript 7.0 side-by-side aliases: `typescript` → `@typescript/typescript6@6.0.2` for the ESLint API, and `@typescript/native` → `typescript@7.0.2` so `tsc` remains TS 7. `npm run lint` now exits 0 with one non-blocking warning (`postcss.config.mjs` anonymous default export); `npx tsc --version` reports 7.0.2 and `require('typescript').version` reports 6.0.3. Orchestrator re-ran the full gate: lint 0 errors, typecheck pass, db-schema 12/12, npm test 16/16, build pass.  
+**Known non-blocking warnings for P9 cleanup:** `postcss.config.mjs` `import/no-anonymous-default-export`; Vite's `configLoader` ESM-in-CJS warning for `vitest.config.ts`.  
 **Exit gate:** `npm run typecheck`, `npm run build`, and `npx vitest run tests/db-schema.test.ts` pass, proving all 7 tables migrate and round-trip cleanly in in-memory libSQL.
 
 ### P2 — Lightweight Auth, Persistent Sessions & User Settings
@@ -300,18 +301,19 @@ flowchart TD
 | `docs/vitals-tracker-v1/state.md` | Research-reconciled (current update) | `b65964f` + `5b18c8d` + current update |
 | `docs/vitals-tracker-v1/research.md` | Complete (`xai/grok-4.6#xhigh` verified) | `c201c69` |
 | `docs/vitals-tracker-v1/plan1.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `5433c0b` |
+| P1 implementation (scaffold, schema, OpenRouter, theme) | Complete; gate verified | `59fbab9`, `3c55468`, `872d32e`, `270973f`, `78202f6`, `4108f70`, `53eabe7`, `d1c2029` |
 | `docs/vitals-tracker-v1/plan2.md` – `plan9.md` | Pending | - |
 | `docs/vitals-tracker-v1/review.md` | Skipped (`--skip review`) | - |
 | `docs/vitals-tracker-v1/final_report.md` | Pending | - |
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: P1 LINT FIX IN PROGRESS — TYPESCRIPT 6/7 SIDE-BY-SIDE FOR `typescript-eslint` (session `ses_de8e826d6ffef4tccCEhby1GWP`)**
+**CURRENT GATE: P2/P3 PLANNING — P1 COMPLETE; DISPATCHING BACKEND PLANNERS IN PARALLEL (`openai/gpt-6.2-sol#xhigh`)**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
 2. [x] Run MAW Section 1.2 sequential role model selection preflight (**Researcher → Planner → Worker**, OpenCode `provider/model[#variant]` IDs or `none`) and persist `setup_status: complete` + `resume_gate: authorized`. Researcher = `xai/grok-4.6#xhigh`; backend planner = `openai/gpt-6.2-sol#xhigh`; frontend planner (P7–P8) = manual handoff; worker = harness-default.
 3. [x] Re-dispatch Step 2 Technical Researcher subagent with `xai/grok-4.6#xhigh` (`docs/vitals-tracker-v1/research.md`), reconcile DAG if needed, and update `dag_status: research-reconciled`.
-4. [#] Execute MAW pipelined DAG loop (`P1` → `P2`‖`P3` → `P4`‖`P5`‖`P6` → `P7`‖`P8` → `P9`): spawn ready planners in foreground parallel, never read `research.md`/`plan*.md` into orchestrator context, pipeline ready workers immediately, and serialize git commits.
+4. [#] Execute MAW pipelined DAG loop (`P1` → `P2`‖`P3` → `P4`‖`P5`‖`P6` → `P7`‖`P8` → `P9`): spawn ready planners in foreground parallel, never read `research.md`/`plan*.md` into orchestrator context, pipeline ready workers immediately, and serialize git commits. P1 is complete; dispatching P2 and P3 planners.
 5. [ ] Skip Step 5 Unified Code Review (`--skip review` recorded).
 6. [ ] Execute Step 6 Final Verification (`npm test`, `npm run typecheck`, `npm run lint`, `npm run build`), write and commit `docs/vitals-tracker-v1/final_report.md`, and set `status: complete`.
