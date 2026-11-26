@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07594f">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <title>Vitals Tracker</title>
+  <style>
+    body { margin: 0; padding: 2rem 1rem; background: #f7faf8; color: #172625; font: 1.125rem/1.55 system-ui, sans-serif; }
+    main { max-width: 34rem; margin-inline: auto; }
+    @media (prefers-color-scheme: dark) { body { color-scheme: dark; background: #111c1a; color: #ecf6f3; } }
+  </style>
+</head>
+<body>
+  <main><h1>Vitals Tracker</h1><p>Your daily care tracker is being set up.</p></main>
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+    }
+  </script>
+</body>
+</html>

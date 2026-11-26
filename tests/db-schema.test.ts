@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { eq } from "drizzle-orm";
 import { expect, it, vi } from "vitest";
 import * as z from "zod";
@@ -286,4 +287,74 @@ it("sets 18px tabular typography and AA text colors in both palettes", () => {
         .toBeGreaterThanOrEqual(4.5);
     }
   }
+});
+
+it("publishes a standalone manifest, real install icons, and a fallback that does not shadow a real root page", async () => {
+  const publicFile = (path: string) => readFileSync(new URL(`../public${path}`, import.meta.url));
+  const manifest = JSON.parse(publicFile("/manifest.json").toString());
+  expect(manifest).toMatchObject({ start_url: "/", scope: "/", display: "standalone" });
+  expect(manifest.icons).toEqual([
+    { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+    { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+    { src: "/icons/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+  ]);
+  for (const [path, size] of [
+    ["/icons/icon-192.png", 192], ["/icons/icon-512.png", 512],
+    ["/icons/maskable-512.png", 512], ["/icons/apple-touch-icon.png", 180],
+  ] as const) {
+    const png = publicFile(path);
+    expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    expect([png.readUInt32BE(16), png.readUInt32BE(20)]).toEqual([size, size]);
+  }
+  const { default: config } = await import("../next.config");
+  await expect(config.headers?.()).resolves.toContainEqual({
+    source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-store" }],
+  });
+  await expect(config.rewrites?.()).resolves.toEqual({
+    beforeFiles: [], afterFiles: [], fallback: [{ source: "/", destination: "/icons/foundation.html" }],
+  });
+  expect(publicFile("/icons/foundation.html").toString()).toContain("Vitals Tracker");
+});
+
+it("only caches allow-listed same-origin static GETs, not navigations, API or photos", async () => {
+  type Event = {
+    request: { url: string; method: string; mode: string; headers: Headers };
+    respondWith: (response: Promise<Response>) => void;
+  };
+  const listeners: Record<string, (event: Event) => void> = {};
+  const cache = {
+    match: vi.fn().mockResolvedValueOnce(undefined).mockResolvedValue(new Response("cached")),
+    put: vi.fn().mockResolvedValue(undefined),
+  };
+  const network = vi.fn().mockResolvedValue(new Response("fresh"));
+  runInNewContext(readFileSync(new URL("../public/sw.js", import.meta.url), "utf8"), {
+    self: {
+      location: { origin: "https://app.example.test" },
+      addEventListener: (name: string, listener: (event: Event) => void) => { listeners[name] = listener; },
+    },
+    caches: { open: vi.fn().mockResolvedValue(cache) }, fetch: network, URL,
+  });
+  function request(url: string, mode = "cors", method = "GET") {
+    const respondWith = vi.fn<Event["respondWith"]>();
+    listeners.fetch({
+      request: { url: new URL(url, "https://app.example.test").href, method, mode, headers: new Headers() },
+      respondWith,
+    });
+    return respondWith;
+  }
+  for (const [url, mode, method] of [
+    ["/api/medicines/scan", "cors", "POST"], ["/api/settings", "cors", "GET"],
+    ["/", "navigate", "GET"], ["/icons/foundation.html", "cors", "GET"],
+    ["/uploads/medicine.jpg", "cors", "GET"], ["https://other.example.test/manifest.json", "cors", "GET"],
+    ["/manifest.json", "cors", "POST"], ["/icons/icon-192.png?private=fixture", "cors", "GET"],
+  ]) {
+    expect(request(url, mode, method)).not.toHaveBeenCalled();
+  }
+  expect(network).not.toHaveBeenCalled();
+  const fresh = request("/_next/static/example.js");
+  expect(await (await fresh.mock.calls[0][0]).text()).toBe("fresh");
+  const cached = request("/_next/static/example.js");
+  expect(await (await cached.mock.calls[0][0]).text()).toBe("cached");
+  expect(network).toHaveBeenCalledOnce();
+  expect(cache.put).toHaveBeenCalledOnce();
 });

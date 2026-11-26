@@ -41,6 +41,11 @@ function setMode(mode: ThemeMode) {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const mode = useSyncExternalStore(subscribe, getPreference, serverPreference);
   useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => undefined);
+    }
+  }, []);
+  useEffect(() => {
     const query = window.matchMedia?.(DARK_QUERY);
     const apply = () => {
       const preference = getPreference();

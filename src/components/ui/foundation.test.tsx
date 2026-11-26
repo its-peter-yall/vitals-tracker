@@ -79,3 +79,16 @@ it("announces an undoable action, settles once, and expires after eight seconds"
   expect(firstExpire).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
 });
+
+it("registers the root-scope service worker from the client", () => {
+  const register = vi.fn().mockResolvedValue(undefined);
+  const prior = Object.getOwnPropertyDescriptor(navigator, "serviceWorker");
+  Object.defineProperty(navigator, "serviceWorker", { configurable: true, value: { register } });
+  try {
+    render(<ThemeProvider><div>Shell</div></ThemeProvider>);
+    expect(register).toHaveBeenCalledExactlyOnceWith("/sw.js", { scope: "/" });
+  } finally {
+    if (prior) Object.defineProperty(navigator, "serviceWorker", prior);
+    else Reflect.deleteProperty(navigator, "serviceWorker");
+  }
+});

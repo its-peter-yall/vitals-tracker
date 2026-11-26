@@ -5,7 +5,13 @@ import { themeInitScript } from "@/components/ui/theme-init";
 import "./globals.css";
 
 export const runtime = "nodejs";
-export const metadata: Metadata = { title: "Vitals Tracker", description: "Daily nutrient and medicine tracking" };
+export const metadata: Metadata = {
+  title: "Vitals Tracker",
+  description: "Daily nutrient and medicine tracking",
+  manifest: "/manifest.json",
+  icons: { icon: "/icons/icon-192.png", apple: "/icons/apple-touch-icon.png" },
+  appleWebApp: { capable: true, title: "Vitals Tracker", statusBarStyle: "default" },
+};
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
