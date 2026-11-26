@@ -329,3 +329,45 @@ describe("AttentionSummary", () => {
     expect(document.body.textContent).not.toMatch(/mg\/dL|mmHg/i);
   });
 });
+
+describe("CautionDaysStrip", () => {
+  it("renders a calm message when there are no caution days", async () => {
+    const { CautionDaysStrip } = await import("@/components/analytics/caution-days-strip");
+    render(
+      <CautionDaysStrip
+        days={normalAnalyticsFixture.days}
+        cautionDays={normalAnalyticsFixture.cautionDays}
+        range="7d"
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Caution Days" })).toBeInTheDocument();
+    expect(screen.getByText("No nutrition cautions in this period.")).toBeInTheDocument();
+  });
+
+  it("highlights caution dates, defaults to the most recent caution day, and lets users switch dates", async () => {
+    const { CautionDaysStrip } = await import("@/components/analytics/caution-days-strip");
+    render(
+      <CautionDaysStrip
+        days={highCautionAnalyticsFixture.days}
+        cautionDays={highCautionAnalyticsFixture.cautionDays}
+        range="7d"
+      />,
+    );
+
+    // Defaults to most recent caution day: 2026-11-25 (Nov 25, 2026)
+    expect(screen.getByText("Nov 25, 2026")).toBeInTheDocument();
+    expect(screen.getByText("Blood pressure watch")).toBeInTheDocument();
+    expect(screen.getByText(/Sodium: 2,200 mg \(above 2,000 mg reference\)/)).toBeInTheDocument();
+
+    // Switch to earlier caution day: 2026-11-22 (Nov 22)
+    const nov22Button = screen.getByRole("button", { name: /Nov 22/i });
+    expect(nov22Button).toHaveClass("min-h-12");
+    fireEvent.click(nov22Button);
+
+    expect(screen.getByText("Nov 22, 2026")).toBeInTheDocument();
+    expect(screen.getByText("Blood sugar watch")).toBeInTheDocument();
+    expect(screen.getByText(/Added Sugars: 31.5 g \(above 25 g reference\)/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/mg\/dL|mmHg/i);
+  });
+});
