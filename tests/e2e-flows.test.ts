@@ -200,3 +200,318 @@ describe("Task 1: unified idempotent seed runner (SQLite + Turso + Node 24 CLI)"
     }
   });
 });
+
+const BASE_URL = "https://vitals.example.test";
+const JPEG_BYTES = Uint8Array.of(0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10);
+const PNG_BYTES = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
+
+function jsonReq(urlPath: string, body: unknown, method = "POST") {
+  return new Request(`${BASE_URL}${urlPath}`, {
+    method,
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: JSON.stringify(body),
+  });
+}
+
+function getReq(urlPath: string) {
+  return new Request(`${BASE_URL}${urlPath}`, { method: "GET" });
+}
+
+function deleteReq(urlPath: string) {
+  return new Request(`${BASE_URL}${urlPath}`, { method: "DELETE" });
+}
+
+function imageReq(urlPath: string, mime: "image/jpeg" | "image/png" | "image/webp", bytes: Uint8Array) {
+  return new Request(`${BASE_URL}${urlPath}`, {
+    method: "POST",
+    headers: { "Content-Type": mime },
+    body: new Uint8Array(bytes),
+  });
+}
+
+function idParams(id: string) {
+  return { params: Promise.resolve({ id }) };
+}
+
+function logParams(id: string, logId: string) {
+  return { params: Promise.resolve({ id, logId }) };
+}
+
+async function signupAndSeed(
+  fixture: Awaited<ReturnType<typeof createTestDb>>,
+  email = "amma@example.test",
+  name = "Amma",
+  password = "calm-daily-care-2026",
+) {
+  const { seedDatabase } = await import("@/db/seed");
+  const { POST: signup } = await import("@/app/api/auth/signup/route");
+  await seedDatabase(fixture.db);
+  const res = await signup(jsonReq("/api/auth/signup", { email, name, password }));
+  expect(res.status).toBe(201);
+  const body = (await res.json()) as {
+    user: { id: string; email: string; name: string; theme: string; visionModel: string | null };
+  };
+  const sessionToken = cookieJar.get(SESSION_COOKIE);
+  expect(sessionToken).toBeTruthy();
+  return { user: body.user, token: sessionToken! };
+}
+
+describe("Task 2: E2E signup/session, guided tracker creation, and food g/ml logging", () => {
+  let fixture: Awaited<ReturnType<typeof createTestDb>> | undefined;
+
+  beforeEach(async () => {
+    cookieJar.clear();
+    vi.setSystemTime(new Date("2026-11-26T08:00:00.000Z"));
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(new Error("Unexpected network fetch")));
+    fixture = await createTestDb();
+    vi.mocked(getDb).mockResolvedValue(fixture.db);
+  });
+
+  afterEach(() => {
+    cookieJar.clear();
+    fixture?.client.close();
+    fixture = undefined;
+    vi.mocked(getDb).mockReset();
+  });
+
+  it("completes signup/session, settings update, guided tracker wizard, curated & AI-confirmed food g/ml logs, and tenant isolation", async () => {
+    const { GET: me } = await import("@/app/api/auth/me/route");
+    const { GET: getSettings, PATCH: patchSettings } = await import("@/app/api/settings/route");
+    const { POST: createTracker, GET: listTrackers } = await import("@/app/api/trackers/route");
+    const { GET: getTracker } = await import("@/app/api/trackers/[id]/route");
+    const { GET: searchFoods } = await import("@/app/api/foods/search/route");
+    const { POST: resolveFood } = await import("@/app/api/foods/resolve/route");
+    const { POST: saveFood } = await import("@/app/api/foods/route");
+    const { POST: addLog } = await import("@/app/api/trackers/[id]/logs/route");
+    const { GET: getSummary } = await import("@/app/api/trackers/[id]/summary/route");
+
+    // 1. Signup + persistent session resolution + settings
+    const amma = await signupAndSeed(fixture!);
+    const meRes = await me();
+    expect(meRes.status).toBe(200);
+    expect(await meRes.json()).toEqual({ user: amma.user });
+
+    vi.stubEnv("OPENROUTER_API_KEY", "test-openrouter-key");
+    const settingsPatch = await patchSettings(
+      jsonReq("/api/settings", { theme: "dark", visionModel: "openai/gpt-4o" }, "PATCH"),
+    );
+    expect(settingsPatch.status).toBe(200);
+    const settingsPayload = await settingsPatch.json();
+    expect(settingsPayload.settings).toEqual({ theme: "dark", visionModel: "openai/gpt-4o" });
+    expect(JSON.stringify(settingsPayload)).not.toContain("test-openrouter-key");
+
+    const settingsGet = await getSettings();
+    expect(settingsGet.status).toBe(200);
+    expect((await settingsGet.json()).settings).toEqual({ theme: "dark", visionModel: "openai/gpt-4o" });
+
+    // 2. Guided tracker creation (Diabetes + High BP flags, selected subset of nutrients)
+    const createRes = await createTracker(
+      jsonReq("/api/trackers", {
+        name: "Amma's Daily Care",
+        healthFlags: ["diabetes", "hypertension"],
+        nutrients: [
+          { nutrientKey: "vitaminD" },
+          { nutrientKey: "calcium" },
+          { nutrientKey: "protein" },
+          { nutrientKey: "totalSugars" },
+          { nutrientKey: "sodium" },
+        ],
+      }),
+    );
+    expect(createRes.status).toBe(201);
+    const { tracker } = (await createRes.json()) as {
+      tracker: {
+        id: string;
+        name: string;
+        healthFlags: string[];
+        nutrients: Array<{ nutrientKey: string; dailyTarget: number; isCustomTarget: boolean }>;
+      };
+    };
+    expect(tracker.name).toBe("Amma's Daily Care");
+    expect(tracker.healthFlags).toEqual(["diabetes", "hypertension"]);
+    expect(tracker.nutrients.map((n) => n.nutrientKey)).toEqual([
+      "vitaminD",
+      "calcium",
+      "protein",
+      "totalSugars",
+      "sodium",
+    ]);
+    expect(tracker.nutrients.every((n) => n.isCustomTarget === false)).toBe(true);
+
+    // 3. Curated local alias food search (doodh -> ml, roti -> g) without network
+    const milkSearch = await searchFoods(getReq("/api/foods/search?q=doodh"));
+    expect(milkSearch.status).toBe(200);
+    const milkFoods = (await milkSearch.json()).foods as Array<{
+      id: string;
+      name: string;
+      defaultUnit: "g" | "ml";
+      nutrientsPer100: Record<string, number>;
+    }>;
+    const milk = milkFoods.find((item) => item.name === "Whole cow's milk (unfortified)");
+    expect(milk?.defaultUnit).toBe("ml");
+
+    const rotiSearch = await searchFoods(getReq("/api/foods/search?q=roti"));
+    expect(rotiSearch.status).toBe(200);
+    const roti = ((await rotiSearch.json()).foods as Array<{ id: string; name: string; defaultUnit: "g" | "ml" }>)
+      .find((item) => item.name === "Whole-wheat chapati");
+    expect(roti?.defaultUnit).toBe("g");
+
+    // 4. Log food in ml, food in g, and cross-unit (g on an ml baseline using 1:1 fallback)
+    const today = "2026-11-26";
+    const milkLogRes = await addLog(
+      jsonReq(`/api/trackers/${tracker.id}/logs`, {
+        entryType: "food",
+        foodId: milk!.id,
+        quantity: 200,
+        unit: "ml",
+        logDate: today,
+      }),
+      idParams(tracker.id),
+    );
+    expect(milkLogRes.status).toBe(201);
+    const milkLog = (await milkLogRes.json()).log;
+    expect(milkLog.computedNutrientsJson.calcium).toBeCloseTo(milk!.nutrientsPer100.calcium * 2, 6);
+
+    const milkGramsRes = await addLog(
+      jsonReq(`/api/trackers/${tracker.id}/logs`, {
+        entryType: "food",
+        foodId: milk!.id,
+        quantity: 50,
+        unit: "g",
+        logDate: today,
+      }),
+      idParams(tracker.id),
+    );
+    expect(milkGramsRes.status).toBe(201);
+    expect((await milkGramsRes.json()).log.computedNutrientsJson.calcium).toBeCloseTo(
+      milk!.nutrientsPer100.calcium * 0.5,
+      6,
+    );
+
+    const rotiLogRes = await addLog(
+      jsonReq(`/api/trackers/${tracker.id}/logs`, {
+        entryType: "food",
+        foodId: roti!.id,
+        quantity: 100,
+        unit: "g",
+        logDate: today,
+      }),
+      idParams(tracker.id),
+    );
+    expect(rotiLogRes.status).toBe(201);
+
+    // 5. Unlisted food -> OpenRouter AI draft (labeled Estimated, NOT saved) -> explicit confirmation -> cached & logged
+    const fetchMock = vi.fn<typeof fetch>(async (url) => {
+      const target = String(url);
+      if (target.includes("openfoodfacts.org")) {
+        return Response.json({ products: [] });
+      }
+      if (target.includes("openrouter.ai")) {
+        return Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  name: "Homemade Mango Lassi",
+                  defaultUnit: "ml",
+                  nutrients: [
+                    { key: "protein", amount: 2.4 },
+                    { key: "calcium", amount: 85 },
+                    { key: "totalSugars", amount: 11.5 },
+                    { key: "addedSugars", amount: 4.0 },
+                    { key: "sodium", amount: 35 },
+                  ],
+                }),
+              },
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected URL: ${target}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const resolveRes = await resolveFood(
+      jsonReq("/api/foods/resolve", { query: "Homemade mango lassi" }),
+    );
+    expect(resolveRes.status).toBe(200);
+    const resolved = await resolveRes.json();
+    expect(resolved).toMatchObject({
+      kind: "draft",
+      draft: {
+        provider: "openrouter",
+        label: "Estimated",
+        estimated: true,
+        name: "Homemade Mango Lassi",
+        defaultUnit: "ml",
+      },
+    });
+    // Resolve must NOT persist to DB before explicit user confirmation
+    expect(
+      await fixture!.db.select().from(schema.foods).where(eq(schema.foods.userId, amma.user.id)),
+    ).toEqual([]);
+
+    const confirmRes = await saveFood(
+      jsonReq("/api/foods", {
+        confirmed: true,
+        source: "ai_confirmed",
+        name: resolved.draft.name,
+        aliases: resolved.draft.aliases,
+        defaultUnit: resolved.draft.defaultUnit,
+        nutrientsPer100: resolved.draft.nutrientsPer100,
+      }),
+    );
+    expect(confirmRes.status).toBe(201);
+    const { food: cachedLassi } = await confirmRes.json();
+    expect(cachedLassi).toMatchObject({ source: "ai_confirmed", estimated: true });
+
+    const lassiLogRes = await addLog(
+      jsonReq(`/api/trackers/${tracker.id}/logs`, {
+        entryType: "food",
+        foodId: cachedLassi.id,
+        quantity: 200,
+        unit: "ml",
+        logDate: today,
+      }),
+      idParams(tracker.id),
+    );
+    expect(lassiLogRes.status).toBe(201);
+
+    // 6. Summary displays ONLY selected 5 nutrients
+    const summaryRes = await getSummary(
+      getReq(`/api/trackers/${tracker.id}/summary?date=${today}`),
+      idParams(tracker.id),
+    );
+    expect(summaryRes.status).toBe(200);
+    const summary = await summaryRes.json();
+    expect(summary.progress.map((p: { nutrientKey: string }) => p.nutrientKey)).toEqual([
+      "vitaminD",
+      "calcium",
+      "protein",
+      "totalSugars",
+      "sodium",
+    ]);
+    // Alerts evaluate full-day totals even outside pinned cards: today's milk, roti,
+    // and lassi total 36.67 g sugars, so only the diabetes caution fires.
+    expect(summary.alerts.map((a: { healthFlag: string }) => a.healthFlag)).toEqual(["diabetes"]);
+    expect(summary.alerts[0].triggers[0]).toMatchObject({
+      nutrientKey: "totalSugars",
+      threshold: 35,
+      unit: "g",
+    });
+    expect(summary.alerts[0].triggers[0].total).toBeGreaterThan(35);
+
+    // 7. Strict tenant isolation: another signed-up user cannot see or read Amma's tracker
+    const { POST: signup } = await import("@/app/api/auth/signup/route");
+    const bobSignup = await signup(
+      jsonReq("/api/auth/signup", {
+        email: "other@example.test",
+        name: "Other User",
+        password: "another-safe-password",
+      }),
+    );
+    expect(bobSignup.status).toBe(201);
+    expect(await (await listTrackers()).json()).toEqual({ trackers: [] });
+    expect((await getTracker(getReq(`/api/trackers/${tracker.id}`), idParams(tracker.id))).status).toBe(404);
+  });
+});
