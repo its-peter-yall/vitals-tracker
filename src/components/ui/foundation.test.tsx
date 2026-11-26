@@ -5,6 +5,7 @@ import { ThemeProvider, ThemeSelect } from "@/components/theme-provider";
 import { Button } from "./button";
 import { Card } from "./card";
 import { themeInitScript, THEME_STORAGE_KEY } from "./theme-init";
+import { UndoToast } from "./undo-toast";
 
 afterEach(() => {
   cleanup();
@@ -48,4 +49,33 @@ it("renders a named native button with a large target and no accidental form sub
   fireEvent.click(button);
   expect(action).toHaveBeenCalledOnce();
   expect(screen.getByRole("button", { name: "Unavailable" })).toBeDisabled();
+});
+
+it("announces an undoable action, settles once, and expires after eight seconds", () => {
+  vi.useFakeTimers();
+  const onUndo = vi.fn();
+  const onExpire = vi.fn();
+  const done = render(<UndoToast message="Food logged" onUndo={onUndo} onExpire={onExpire} />);
+  expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  act(() => vi.advanceTimersByTime(100));
+  expect(screen.getByRole("status")).toHaveTextContent("Food logged");
+  act(() => vi.advanceTimersByTime(7_899));
+  const button = screen.getByRole("button", { name: "Undo" });
+  button.focus();
+  expect(button).toHaveFocus();
+  fireEvent.click(button);
+  fireEvent.click(button);
+  act(() => vi.advanceTimersByTime(1));
+  expect(onUndo).toHaveBeenCalledOnce();
+  expect(onExpire).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
+  done.unmount();
+  const firstExpire = vi.fn();
+  const next = render(<UndoToast message="Medicine logged" onUndo={onUndo} onExpire={firstExpire} />);
+  act(() => vi.advanceTimersByTime(7_999));
+  next.rerender(<UndoToast message="Medicine logged" onUndo={onUndo} onExpire={onExpire} />);
+  act(() => vi.advanceTimersByTime(1));
+  expect(onExpire).toHaveBeenCalledOnce();
+  expect(firstExpire).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
 });
