@@ -13,6 +13,16 @@ export type NutrientInsight = {
   nutrientKey: NutrientKey;
   reason: "lowCompletion" | "goalOnTrack" | "upperExceeded" | "upperWithinReference";
 };
+export type MedicineAdherence = {
+  key: string;
+  medicineId: string | null;
+  displayName: string;
+  loggedDays: number;
+  rangeDays: number;
+  loggedDates: string[];
+  loggedDayPct: number;
+};
+
 export type Analytics = {
   range: AnalyticsQuery["range"];
   startDate: string;
@@ -25,4 +35,5 @@ export type Analytics = {
   trends: NutrientTrend[];
   needsAttention: NutrientInsight[];
   onTrack: NutrientInsight[];
+  medicineAdherence: MedicineAdherence[];
 };

@@ -3,7 +3,7 @@ import type { Db } from "@/db";
 import type { NutrientKey } from "@/lib/nutrients/types";
 import type { AnalyticsQuery } from "@/lib/trackers/schemas";
 import { findTracker, readSnapshotWindow, summarizeDay, type SnapshotRow } from "@/lib/trackers/service";
-import type { Analytics, NutrientInsight } from "./types";
+import type { Analytics, MedicineAdherence, NutrientInsight } from "./types";
 
 const dayMs = 86_400_000;
 const completionThresholdPct = 80;
@@ -18,6 +18,22 @@ function calendarWindow(endDate: string, length: number) {
 
 function exceedsReference(amount: number, target: number) {
   return amount - target > 2 * Number.EPSILON * Math.max(amount, target);
+}
+
+function buildMedicineAdherence(rows: readonly SnapshotRow[], rangeDays: number): MedicineAdherence[] {
+  type Group = { medicineId: string | null; displayName: string; dates: Set<string> };
+  const groups = new Map<string, Group>();
+  for (const row of rows) {
+    if (row.entryType !== "medicine") continue;
+    const key = row.medicineId ? `id:${row.medicineId}` : `name:${row.displayName.trim().toLowerCase()}`;
+    const group = groups.get(key) ?? { medicineId: row.medicineId, displayName: row.displayName, dates: new Set<string>() };
+    group.dates.add(row.logDate);
+    groups.set(key, group);
+  }
+  return [...groups].map(([key, { medicineId, displayName, dates }]) => ({
+    key, medicineId, displayName, loggedDays: dates.size, rangeDays, loggedDates: [...dates].sort(),
+    loggedDayPct: (dates.size / rangeDays) * 100,
+  })).sort((a, b) => b.loggedDays - a.loggedDays || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 }
 
 export async function trackerAnalytics(
@@ -68,5 +84,6 @@ export async function trackerAnalytics(
   return {
     range, startDate, endDate, days, activeDays, cautionDays, cautionDayCount: cautionDays.length,
     trends, needsAttention, onTrack, averageCompletionPct: goalAverages.length ? mean(goalAverages) : null,
+    medicineAdherence: buildMedicineAdherence(rows, length),
   };
 }

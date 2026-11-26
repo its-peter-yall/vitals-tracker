@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { getDb } from "@/db";
-import { intakeLogs, sessions, trackerNutrients, trackers, users } from "@/db/schema";
+import { intakeLogs, medicines, sessions, trackerNutrients, trackers, users } from "@/db/schema";
 import { createTestDb } from "@/db/test-utils";
 import { makeSession, SESSION_COOKIE } from "@/lib/auth/session";
 
@@ -158,4 +158,60 @@ it("rejects invalid ranges, impossible dates, and duplicate analytics params", a
     "range=30d&endDate=0001-01-01"]) {
     expect((await query(id, qs)).status).toBe(400);
   }
+});
+
+it("counts distinct days per medicine, including removed catalog items and prescription-only logs", async () => {
+  const trackerId = await makeTracker(alice.id, false);
+  const other = await makeTracker();
+  const common = { userId: alice.id, createdAt: loggedAt, defaultDoseLabel: "1 tablet",
+    source: "manual" as const, nutrientsPerDoseJson: {} };
+  const [rx, removed, sameName] = await db().insert(medicines).values([
+    { ...common, brandName: "Example", category: "prescription" },
+    { ...common, brandName: "Old", category: "supplement" },
+    { ...common, brandName: "Example", category: "both" },
+  ]).returning();
+  function dose(medicineId: string, displayName: string, logDate: string, patch = {}) {
+    return {
+      trackerId, userId: alice.id, loggedAt, logDate, displayName, medicineId,
+      entryType: "medicine" as const, unit: "dose" as const, quantity: 1, computedNutrientsJson: {}, ...patch,
+    };
+  }
+  await db().insert(intakeLogs).values([
+    dose(rx.id, "Example", endDate), dose(rx.id, "Example", endDate, { quantity: 2 }),
+    dose(rx.id, "Former name", "2024-03-06"),
+    dose(rx.id, "Example", "2024-03-01"), dose(rx.id, "Example", "2024-02-11"),
+    dose(removed.id, "OLD", "2024-03-06"), dose(removed.id, "Old", "2024-03-08"),
+    dose(sameName.id, "Example", endDate),
+    dose(rx.id, "Example", "2024-03-07", { trackerId: other }),
+    dose(rx.id, "Example", "2024-03-10", { userId: bob.id }),
+  ]);
+  await db().delete(medicines).where(eq(medicines.id, removed.id));
+  const week = await analytics(trackerId);
+  expect(week).toMatchObject({ activeDays: 3, averageCompletionPct: null, trends: [] });
+  expect(week.medicineAdherence).toHaveLength(3);
+  expect(week.medicineAdherence).toEqual(expect.arrayContaining([
+    { key: `id:${rx.id}`, medicineId: rx.id, displayName: "Example", loggedDays: 2, rangeDays: 7,
+      loggedDates: ["2024-03-06", endDate], loggedDayPct: (2 / 7) * 100 },
+    { key: "name:old", medicineId: null, displayName: "Old", loggedDays: 2, rangeDays: 7,
+      loggedDates: ["2024-03-06", "2024-03-08"], loggedDayPct: (2 / 7) * 100 },
+    { key: `id:${sameName.id}`, medicineId: sameName.id, displayName: "Example", loggedDays: 1, rangeDays: 7,
+      loggedDates: [endDate], loggedDayPct: (1 / 7) * 100 },
+  ]));
+  const month = await analytics(trackerId, "30d");
+  expect(month.medicineAdherence[0]).toMatchObject({
+    medicineId: rx.id, loggedDays: 3, rangeDays: 30, loggedDates: ["2024-03-01", "2024-03-06", endDate],
+    loggedDayPct: 10,
+  });
+});
+
+it("denies cross-user analytics and unauthenticated analytics and returns no medicines for an empty tracker", async () => {
+  const id = await makeTracker();
+  expect((await analytics(id)).medicineAdherence).toEqual([]);
+  token = bob.token;
+  const foreign = await query(id);
+  const unknown = await query("missing");
+  expect(foreign.status).toBe(404);
+  expect(await foreign.json()).toEqual(await unknown.json());
+  token = undefined;
+  expect((await query(id)).status).toBe(401);
 });
