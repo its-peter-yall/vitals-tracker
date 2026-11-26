@@ -43,6 +43,7 @@ export const trackerNutrients = sqliteTable("tracker_nutrients", {
   trackerId: text("tracker_id").notNull().references(() => trackers.id, { onDelete: "cascade" }),
   nutrientKey: text("nutrient_key").notNull(),
   dailyTarget: real("daily_target").notNull(),
+  isCustomTarget: integer("is_custom_target", { mode: "boolean" }).notNull().default(false),
   sortOrder: integer("sort_order").notNull(),
 }, (t) => [uniqueIndex("tracker_nutrients_tracker_id_nutrient_key_uidx").on(t.trackerId, t.nutrientKey)]);
 
