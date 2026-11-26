@@ -351,3 +351,79 @@ it("blocks log mutations across both tenant and tracker boundaries", async () =>
   expect(await db().select().from(intakeLogs)).toHaveLength(2);
   expect((await db().select().from(intakeLogs).where(eq(intakeLogs.id, log.id)))[0].quantity).toBe(100);
 });
+
+it("combines food and supplements for pinned progress while evaluating unpinned nutrients", async () => {
+  const { GET } = await import("@/app/api/trackers/[id]/summary/route");
+  const { DELETE } = await import("@/app/api/trackers/[id]/logs/[logId]/route");
+  const { id } = await newTracker({
+    name: "Daily", healthFlags: ["diabetes", "hypertension"],
+    nutrients: [{ nutrientKey: "vitaminC" }, { nutrientKey: "fiber" }, { nutrientKey: "sodium" }],
+  });
+  const { food, supplement } = await catalog();
+  await db().update(foods).set({
+    nutrientsPer100Json: { vitaminC: 10, sodium: 2200, addedSugars: 30 },
+  }).where(eq(foods.id, food.id));
+  const drink = await addLog(id, foodBody(food.id));
+  await addLog(id, medicineBody(supplement.id, { quantity: 2 }));
+  await addLog(id, foodBody(food.id, { logDate: "2026-11-26", quantity: 500 }));
+  const another = await newTracker();
+  await addLog(another.id, foodBody(food.id, { quantity: 500 }));
+  await db().insert(intakeLogs).values({
+    trackerId: id, userId: bob.id, logDate: date, loggedAt: iso, entryType: "food",
+    displayName: "Mismatched owner", quantity: 100, unit: "g",
+    computedNutrientsJson: { vitaminC: 999, sodium: 9999 },
+  });
+  const path = `${root}/${id}/summary?date=${date}`;
+  const response = await GET(request(path), ctx(id));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("Cache-Control")).toBe("no-store");
+  const day = await response.json();
+  expect(day.date).toBe(date);
+  expect(day.progress.map(({ nutrientKey, amount, hasAmount }: {
+    nutrientKey: string; amount: number; hasAmount: boolean;
+  }) => [nutrientKey, amount, hasAmount])).toEqual([
+    ["vitaminC", 60, true], ["fiber", 0, false], ["sodium", 2200, true],
+  ]);
+  expect(day.alerts).toEqual([
+    { healthFlag: "diabetes", message: expect.stringMatching(/Sugar logged today/),
+      triggers: [{ nutrientKey: "addedSugars", total: 30, threshold: 25, unit: "g" }] },
+    { healthFlag: "hypertension", message: expect.stringMatching(/Sodium logged today/),
+      triggers: [{ nutrientKey: "sodium", total: 2200, threshold: 2000, unit: "mg" }] },
+  ]);
+  expect(JSON.stringify(day.alerts)).not.toMatch(/mg\/dL|mmHg/i);
+  expect((await DELETE(request(`${root}/${id}/logs/${drink.id}`, "DELETE"), logCtx(id, drink.id))).status)
+    .toBe(200);
+  const undone = await (await GET(request(path), ctx(id))).json();
+  expect(undone.alerts).toEqual([]);
+  expect(undone.progress[0].amount).toBe(50);
+});
+
+it("uses an explicit catalog-equal threshold, but not an untouched or reset default", async () => {
+  const { GET } = await import("@/app/api/trackers/[id]/summary/route");
+  const { PATCH } = await import("@/app/api/trackers/[id]/route");
+  const { id } = await newTracker({
+    name: "Sodium", healthFlags: ["hypertension"], nutrients: [{ nutrientKey: "sodium" }],
+  });
+  const { food } = await catalog();
+  await db().update(foods).set({ nutrientsPer100Json: { sodium: 2200 } }).where(eq(foods.id, food.id));
+  await addLog(id, foodBody(food.id));
+  const detail = `${root}/${id}`;
+  const summary = `${detail}/summary?date=${date}`;
+  const read = async () => (await GET(request(summary), ctx(id))).json();
+  expect((await read()).alerts).toHaveLength(1);
+  const changed = await PATCH(request(detail, "PATCH", {
+    nutrients: [{ nutrientKey: "sodium", customDailyTarget: 2300 }],
+  }), ctx(id));
+  expect(changed.status).toBe(200);
+  expect((await read()).alerts).toEqual([]);
+  expect((await PATCH(request(detail, "PATCH", { name: "Still custom" }), ctx(id))).status).toBe(200);
+  expect((await read()).alerts).toEqual([]);
+  expect((await PATCH(request(detail, "PATCH", { nutrients: [{ nutrientKey: "sodium" }] }), ctx(id))).status)
+    .toBe(200);
+  expect((await read()).alerts).toHaveLength(1);
+  expect((await GET(request(`${detail}/summary?date=2026-02-30`), ctx(id))).status).toBe(400);
+  token = bob.token;
+  expect((await GET(request(summary), ctx(id))).status).toBe(404);
+  token = undefined;
+  expect((await GET(request(summary), ctx(id))).status).toBe(401);
+});

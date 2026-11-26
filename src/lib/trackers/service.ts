@@ -1,9 +1,11 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import type { Db } from "@/db";
 import { foods, intakeLogs, medicines, trackerNutrients, trackers } from "@/db/schema";
+import { evaluateImpact } from "@/lib/impact/engine";
 import { isNutrientKey, NUTRIENT_CATALOG } from "@/lib/nutrients/catalog";
-import { scaleFoodNutrients, scaleSupplementNutrients } from "@/lib/nutrients/calculator";
+import { scaleFoodNutrients, scaleSupplementNutrients, sumDailyNutrients } from "@/lib/nutrients/calculator";
+import type { NutrientMap } from "@/lib/nutrients/types";
 import type { CreateLog, CreateTracker, PatchTracker } from "./schemas";
 
 type Reader = Pick<Db, "select">;
@@ -208,4 +210,40 @@ export async function deleteLog(db: Db, userId: string, trackerId: string, logId
   const [row] = await db.delete(intakeLogs).where(ownedLog(db, userId, trackerId, logId))
     .returning({ id: intakeLogs.id });
   return Boolean(row);
+}
+
+export type SnapshotRow = Pick<LogRow,
+  "logDate" | "entryType" | "medicineId" | "displayName" | "computedNutrientsJson">;
+
+export async function readSnapshotWindow(
+  db: Db, userId: string, trackerId: string, startDate: string, endDate: string,
+): Promise<SnapshotRow[]> {
+  return db.select({
+    logDate: intakeLogs.logDate, entryType: intakeLogs.entryType, medicineId: intakeLogs.medicineId,
+    displayName: intakeLogs.displayName, computedNutrientsJson: intakeLogs.computedNutrientsJson,
+  }).from(intakeLogs)
+    .where(and(logScope(userId, trackerId), gte(intakeLogs.logDate, startDate), lte(intakeLogs.logDate, endDate)))
+    .orderBy(desc(intakeLogs.logDate), desc(intakeLogs.loggedAt), asc(intakeLogs.id));
+}
+
+export function summarizeDay(date: string, tracker: Tracker, logs: readonly SnapshotRow[]) {
+  const dailyTotals = sumDailyNutrients(logs.map((log) => log.computedNutrientsJson));
+  const customTargets: NutrientMap = {};
+  for (const row of tracker.nutrients) {
+    if (row.isCustomTarget) customTargets[row.nutrientKey] = row.dailyTarget;
+  }
+  const alerts = evaluateImpact({ dailyTotals, healthFlags: tracker.healthFlags, customTargets });
+  const progress = tracker.nutrients.map((nutrient) => {
+    const amount = dailyTotals[nutrient.nutrientKey];
+    return { ...nutrient, amount: amount ?? 0, hasAmount: amount !== undefined };
+  });
+  return { date, progress, alerts };
+}
+export type DailySummary = ReturnType<typeof summarizeDay>;
+
+export async function dailySummary(db: Db, userId: string, trackerId: string, date: string) {
+  const tracker = await findTracker(db, userId, trackerId);
+  if (!tracker) return null;
+  const rows = await readSnapshotWindow(db, userId, trackerId, date, date);
+  return summarizeDay(date, tracker, rows);
 }
