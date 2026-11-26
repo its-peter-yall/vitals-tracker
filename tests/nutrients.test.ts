@@ -1,5 +1,8 @@
 import { expect, it } from "vitest";
 import { isNutrientKey, NUTRIENT_CATALOG, NUTRIENT_KEYS } from "@/lib/nutrients/catalog";
+import {
+  roundNutrientForDisplay, scaleFoodNutrients, scaleSupplementNutrients,
+} from "@/lib/nutrients/calculator";
 
 it("defines the complete selectable catalog in wizard order", () => {
   expect(NUTRIENT_KEYS.map((key) => {
@@ -41,4 +44,60 @@ it("accepts exact canonical keys, not aliases, prototype keys or non-strings", (
   for (const key of ["folate", "total_sugars", "Sodium", "constructor", "__proto__", null, 2000]) {
     expect(isNutrientKey(key)).toBe(false);
   }
+});
+
+it("scales food in g or ml on either baseline using the 1:1 fallback", () => {
+  const solids = { defaultUnit: "g", nutrientsPer100: { protein: 4, iron: 0 } } as const;
+  const liquids = { defaultUnit: "ml", nutrientsPer100: { water: 80, totalSugars: 10 } } as const;
+  expect(scaleFoodNutrients(solids, 50, "g")).toEqual({ protein: 2, iron: 0 });
+  expect(scaleFoodNutrients(solids, 50, "ml")).toEqual({ protein: 2, iron: 0 });
+  const fractional = scaleFoodNutrients(liquids, 125.5, "ml");
+  expect(fractional.water).toBeCloseTo(100.4, 12);
+  expect(fractional.totalSugars).toBeCloseTo(12.55, 12);
+  expect(scaleFoodNutrients(liquids, 125.5, "g")).toEqual(fractional);
+  expect(scaleFoodNutrients(solids, 100, "g")).toEqual(solids.nutrientsPer100);
+  expect(scaleFoodNutrients(solids, 100, "g")).not.toBe(solids.nutrientsPer100);
+});
+
+it("scales fractional or multiple supplement doses in canonical units", () => {
+  const baseline = Object.freeze({ vitaminD: 25, calcium: 300, vitaminB12: 2.4 });
+  expect(scaleSupplementNutrients(baseline, 0.5)).toEqual({
+    vitaminD: 12.5, calcium: 150, vitaminB12: 1.2,
+  });
+  expect(scaleSupplementNutrients(baseline, 2)).toEqual({
+    vitaminD: 50, calcium: 600, vitaminB12: 4.8,
+  });
+  expect(baseline).toEqual({ vitaminD: 25, calcium: 300, vitaminB12: 2.4 });
+});
+
+it("scales sparse baselines safely without treating unknown amounts as zero", () => {
+  const baseline = { protein: 0, sodium: NaN, iodine: Infinity, iron: -1, fiber: "2", salt: 5 };
+  expect(scaleFoodNutrients({ defaultUnit: "g", nutrientsPer100: baseline }, 100, "g"))
+    .toEqual({ protein: 0 });
+  expect(scaleFoodNutrients({ defaultUnit: "ml", nutrientsPer100: {} }, 100, "ml")).toEqual({});
+  expect(scaleFoodNutrients({ defaultUnit: "g", nutrientsPer100: baseline }, 0, "g")).toEqual({});
+  expect(scaleSupplementNutrients({ calcium: 300 }, 0)).toEqual({});
+  expect(scaleSupplementNutrients({}, 2)).toEqual({});
+  const inherited = Object.assign(Object.create({ vitaminC: 500 }), { protein: 1 });
+  expect(scaleSupplementNutrients(inherited, 1)).toEqual({ protein: 1 });
+});
+
+it("rejects invalid scaling quantities and numeric overflow", () => {
+  const food = { defaultUnit: "g", nutrientsPer100: { iron: 1 } } as const;
+  for (const quantity of [-1, NaN, Infinity]) {
+    expect(() => scaleFoodNutrients(food, quantity, "g")).toThrow(RangeError);
+    expect(() => scaleSupplementNutrients({ iron: 1 }, quantity)).toThrow(RangeError);
+  }
+  expect(() => scaleSupplementNutrients({ iron: Number.MAX_VALUE }, 2)).toThrow(RangeError);
+});
+
+it("scales at number precision and rounds explicitly for display only", () => {
+  const food = { defaultUnit: "g", nutrientsPer100: { fiber: 3.456789 } } as const;
+  const snapshot = scaleFoodNutrients(food, 33.3, "g");
+  expect(snapshot.fiber).toBeCloseTo(1.151110737, 12);
+  expect(roundNutrientForDisplay(snapshot.fiber!)).toBe(1.1511);
+  expect(roundNutrientForDisplay(0.03125)).toBe(0.0313);
+  expect(roundNutrientForDisplay(0.00004)).toBe(0);
+  expect(roundNutrientForDisplay(2)).toBe(2);
+  expect(() => roundNutrientForDisplay(NaN)).toThrow(RangeError);
 });
