@@ -1,9 +1,10 @@
 import "server-only";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, or } from "drizzle-orm";
 import type { Db } from "@/db";
-import { trackerNutrients, trackers } from "@/db/schema";
+import { foods, intakeLogs, medicines, trackerNutrients, trackers } from "@/db/schema";
 import { isNutrientKey, NUTRIENT_CATALOG } from "@/lib/nutrients/catalog";
-import type { CreateTracker, PatchTracker } from "./schemas";
+import { scaleFoodNutrients, scaleSupplementNutrients } from "@/lib/nutrients/calculator";
+import type { CreateLog, CreateTracker, PatchTracker } from "./schemas";
 
 type Reader = Pick<Db, "select">;
 type TrackerRow = typeof trackers.$inferSelect;
@@ -96,4 +97,88 @@ export function updateTracker(db: Db, userId: string, id: string, input: PatchTr
 export async function deleteTracker(db: Db, userId: string, id: string) {
   const [row] = await db.delete(trackers).where(trackerScope(userId, id)).returning({ id: trackers.id });
   return Boolean(row);
+}
+
+type LogRow = typeof intakeLogs.$inferSelect;
+
+function logScope(userId: string, trackerId: string) {
+  return and(eq(intakeLogs.userId, userId), eq(intakeLogs.trackerId, trackerId));
+}
+
+async function ownsTracker(db: Reader, userId: string, trackerId: string) {
+  const [row] = await db.select({ id: trackers.id }).from(trackers)
+    .where(trackerScope(userId, trackerId)).limit(1);
+  return Boolean(row);
+}
+
+function logView(row: LogRow, medicineNotes: string | null) {
+  const { id, trackerId, logDate, loggedAt, entryType, foodId, medicineId, displayName,
+    quantity, unit, computedNutrientsJson } = row;
+  return { id, trackerId, logDate, loggedAt, entryType, foodId, medicineId, displayName,
+    quantity, unit, computedNutrientsJson, medicineNotes };
+}
+export type IntakeLog = ReturnType<typeof logView>;
+
+function readableMedicine(userId: string) {
+  return or(eq(medicines.userId, userId), isNull(medicines.userId));
+}
+
+async function findMedicine(db: Reader, userId: string, id: string) {
+  const [medicine] = await db.select().from(medicines)
+    .where(and(eq(medicines.id, id), readableMedicine(userId))).limit(1);
+  return medicine;
+}
+
+export class InvalidSnapshotAmount extends Error {}
+
+function checkedSnapshot(calculate: () => Record<string, number>) {
+  try {
+    const snapshot = calculate();
+    // Reject implausibly large stored results, including from older catalog imports.
+    if (Object.values(snapshot).some((value) => value > Number.MAX_SAFE_INTEGER)) {
+      throw new RangeError("Snapshot amount exceeds the numeric limit.");
+    }
+    return snapshot;
+  } catch (error) {
+    if (error instanceof RangeError) throw new InvalidSnapshotAmount();
+    throw error;
+  }
+}
+
+export async function listLogs(db: Db, userId: string, trackerId: string, date: string) {
+  if (!await ownsTracker(db, userId, trackerId)) return null;
+  const rows = await db.select({ log: intakeLogs, notes: medicines.notes }).from(intakeLogs)
+    .leftJoin(medicines, and(eq(medicines.id, intakeLogs.medicineId), readableMedicine(userId)))
+    .where(and(logScope(userId, trackerId), eq(intakeLogs.logDate, date)))
+    .orderBy(desc(intakeLogs.loggedAt), asc(intakeLogs.id));
+  return rows.map(({ log, notes }) => logView(log, notes));
+}
+
+export function createLog(db: Db, userId: string, trackerId: string, input: CreateLog) {
+  return db.transaction(async (tx) => {
+    if (!await ownsTracker(tx, userId, trackerId)) return null;
+    const common = { trackerId, userId, logDate: input.logDate, loggedAt: new Date().toISOString(),
+      quantity: input.quantity, unit: input.unit, entryType: input.entryType };
+    if (input.entryType === "food") {
+      const [food] = await tx.select().from(foods).where(and(
+        eq(foods.id, input.foodId), or(eq(foods.userId, userId), isNull(foods.userId)),
+      )).limit(1);
+      if (!food) return null;
+      const computedNutrientsJson = checkedSnapshot(() => scaleFoodNutrients(
+        { defaultUnit: food.defaultUnit, nutrientsPer100: food.nutrientsPer100Json }, input.quantity, input.unit,
+      ));
+      const [row] = await tx.insert(intakeLogs).values({
+        ...common, foodId: food.id, displayName: food.name, computedNutrientsJson,
+      }).returning();
+      return logView(row, null);
+    }
+    const medicine = await findMedicine(tx, userId, input.medicineId);
+    if (!medicine) return null;
+    const computedNutrientsJson = medicine.category === "prescription" ? {} :
+      checkedSnapshot(() => scaleSupplementNutrients(medicine.nutrientsPerDoseJson, input.quantity));
+    const [row] = await tx.insert(intakeLogs).values({
+      ...common, medicineId: medicine.id, displayName: medicine.brandName, computedNutrientsJson,
+    }).returning();
+    return logView(row, medicine.notes);
+  });
 }

@@ -19,3 +19,17 @@ export const patchTrackerSchema = z.strictObject({
   name: name.optional(), healthFlags: healthFlags.optional(), nutrients: nutrients.optional(),
 }).refine((input) => input.name !== undefined || input.healthFlags !== undefined || input.nutrients !== undefined);
 export type PatchTracker = z.output<typeof patchTrackerSchema>;
+
+export const localDateSchema = z.iso.date().refine((date) => date >= "0001-01-01");
+const id = z.string().min(1).max(128);
+const logFields = { logDate: localDateSchema, quantity: positiveAmount };
+export const createLogSchema = z.discriminatedUnion("entryType", [
+  z.strictObject({ ...logFields, entryType: z.literal("food"), foodId: id, unit: z.enum(["g", "ml"]) }),
+  z.strictObject({ ...logFields, entryType: z.literal("medicine"), medicineId: id, unit: z.literal("dose") }),
+]);
+export type CreateLog = z.output<typeof createLogSchema>;
+
+export function dateFromRequest(request: Request) {
+  const dates = new URL(request.url).searchParams.getAll("date");
+  return localDateSchema.safeParse(dates.length === 1 ? dates[0] : undefined);
+}
