@@ -212,3 +212,72 @@ describe("Task 3: daily log list edit and delete", () => {
     expect(onDeleteLog).toHaveBeenCalledWith(expect.objectContaining({ id: "log-2" }));
   });
 });
+
+describe("Task 4: 4-step guided create tracker wizard", () => {
+  it("walks all 4 steps, preserves customDailyTarget provenance, and navigates on create", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(
+        {
+          tracker: {
+            id: "tr-new",
+            name: "Amma's Daily Care",
+            healthFlags: ["diabetes"],
+            createdAt: "2026-11-26T00:00:00.000Z",
+            updatedAt: "2026-11-26T00:00:00.000Z",
+            nutrients: [],
+          },
+        },
+        { status: 201 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { default: NewTrackerPage } = await import("@/app/trackers/new/page");
+    render(<NewTrackerPage />);
+
+    // Step 1: Name & Health Flags
+    expect(screen.getByText(/step 1 of 4/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/tracker name/i), {
+      target: { value: "Amma's Daily Care" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /diabetes \/ blood sugar watch/i }));
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 2: Vitamins
+    expect(screen.getByText(/step 2 of 4/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /vitamin d/i }));
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 3: Minerals
+    expect(screen.getByText(/step 3 of 4/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /sodium/i }));
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+
+    // Step 4: Essential Nutrients & Editable Targets
+    expect(screen.getByText(/step 4 of 4/i)).toBeInTheDocument();
+    // Diabetes recommendation visible
+    expect(screen.getByText(/recommended for blood sugar watch/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /protein/i }));
+
+    // Edit Sodium target explicitly; leave Vitamin D and Protein untouched
+    const sodiumInput = screen.getByLabelText(/sodium daily target/i);
+    fireEvent.change(sodiumInput, { target: { value: "1800" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /create tracker/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/trackers");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      name: "Amma's Daily Care",
+      healthFlags: ["diabetes"],
+      nutrients: [
+        { nutrientKey: "vitaminD" },
+        { nutrientKey: "sodium", customDailyTarget: 1800 },
+        { nutrientKey: "protein" },
+      ],
+    });
+    expect(nav.push).toHaveBeenCalledWith("/trackers/tr-new");
+  });
+});
