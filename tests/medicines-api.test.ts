@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { getDb } from "@/db";
-import { medicines, sessions, users } from "@/db/schema";
+import { intakeLogs, medicines, sessions, trackers, users } from "@/db/schema";
 import { createTestDb } from "@/db/test-utils";
 import { makeSession, SESSION_COOKIE } from "@/lib/auth/session";
 
@@ -132,4 +132,72 @@ it("rejects unconfirmed scan envelopes, ownership fields, and invalid cabinet cr
   });
   expect((await POST(textBody)).status).toBe(400);
   expect(await fixture.db.select().from(medicines)).toEqual([]);
+});
+
+const context = (id: string) => ({ params: Promise.resolve({ id }) });
+const removeRequest = (id: string) =>
+  new Request(`https://app.example.test/api/medicines/${id}`, { method: "DELETE" });
+
+it("patches and deletes only an owned private medicine, preserving immutable history", async () => {
+  const { POST } = await import("@/app/api/medicines/route");
+  const { PATCH, DELETE } = await import("@/app/api/medicines/[id]/route");
+  const { curatedMedicines, seedMedicines } = await import("@/db/seed-medicines");
+  await seedMedicines(fixture.db);
+  const a = await account("alice");
+  const b = await account("bob");
+  cookieToken = a.token;
+  const { medicine } = await (await POST(cabinetJson({
+    ...draftInput, source: "ocr_confirmed", scheduleHint: "Personal reminder", genericName: "D3",
+  }))).json();
+  const id: string = medicine.id;
+  const patch = (body: unknown, target = id) =>
+    PATCH(cabinetJson(body, "PATCH", `${cabinetPath}/${target}`), context(target));
+  const remove = (target = id) => DELETE(removeRequest(target), context(target));
+
+  cookieToken = undefined;
+  expect((await patch({ notes: null })).status).toBe(401);
+  expect((await remove()).status).toBe(401);
+  cookieToken = b.token;
+  const other = await patch({ notes: "Not mine" });
+  expect(other.status).toBe(404);
+  expect((await remove()).status).toBe(404);
+  const missingId = "f5d00000-0000-4000-8000-000000000099";
+  const missing = await patch({ notes: "Missing" }, missingId);
+  expect(missing.status).toBe(404);
+  expect(await missing.json()).toEqual(await other.json());
+  expect((await remove(missingId)).status).toBe(404);
+
+  cookieToken = a.token;
+  const curatedId = curatedMedicines[0].id;
+  expect((await patch({ notes: "No" }, curatedId)).status).toBe(404);
+  expect((await remove(curatedId)).status).toBe(404);
+  expect((await patch({ notes: "No" }, "not-a-uuid")).status).toBe(404);
+  for (const body of [{}, { source: "manual" }, { userId: b.user.id }, { nutrientsPerDose: { D: 1 } }]) {
+    expect((await patch(body)).status).toBe(400);
+  }
+  const time = new Date().toISOString();
+  const [tracker] = await fixture.db.insert(trackers).values({
+    userId: a.user.id, name: "Daily", healthFlagsJson: [], createdAt: time, updatedAt: time,
+  }).returning();
+  await fixture.db.insert(intakeLogs).values({
+    trackerId: tracker.id, userId: a.user.id, logDate: "2026-11-26", loggedAt: time,
+    entryType: "medicine", medicineId: id, displayName: "Original D3", quantity: 1,
+    unit: "dose", computedNutrientsJson: { vitaminD: 25 },
+  });
+  const updated = await patch({ nutrientsPerDose: { vitaminC: 5 }, notes: null, scheduleHint: null });
+  expect(updated.status).toBe(200);
+  expect(await updated.json()).toEqual({ medicine: {
+    ...medicine, notes: null, scheduleHint: null, nutrientsPerDose: { vitaminC: 5 },
+  } });
+  expect(await fixture.db.select().from(intakeLogs)).toEqual([
+    expect.objectContaining({ medicineId: id, displayName: "Original D3", computedNutrientsJson: { vitaminD: 25 } }),
+  ]);
+  const deleted = await remove();
+  expect(deleted.status).toBe(200);
+  expect(await deleted.json()).toEqual({ ok: true });
+  expect((await remove()).status).toBe(404);
+  expect(await fixture.db.select().from(medicines)).toHaveLength(6);
+  expect(await fixture.db.select().from(intakeLogs)).toEqual([
+    expect.objectContaining({ medicineId: null, displayName: "Original D3", computedNutrientsJson: { vitaminD: 25 } }),
+  ]);
 });
