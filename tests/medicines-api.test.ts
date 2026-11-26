@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { getDb } from "@/db";
 import { intakeLogs, medicines, sessions, trackers, users } from "@/db/schema";
@@ -200,4 +201,86 @@ it("patches and deletes only an owned private medicine, preserving immutable his
   expect(await fixture.db.select().from(intakeLogs)).toEqual([
     expect.objectContaining({ medicineId: null, displayName: "Original D3", computedNutrientsJson: { vitaminD: 25 } }),
   ]);
+});
+
+const readOcr = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/medicines/ocr-fallback", () => ({ tesseractOcrProvider: { readText: readOcr } }));
+const packagePhoto = Uint8Array.of(0xff, 0xd8, 0xff, 0x01);
+
+function scanRequest(suffix = "", mime = "image/jpeg", bytes: Uint8Array = packagePhoto) {
+  return new Request(`https://app.example.test/api/medicines/scan${suffix}`, {
+    method: "POST", headers: { "Content-Type": mime }, body: new Uint8Array(bytes),
+  });
+}
+
+it("authenticates scans before upload consumption and rejects invalid uploads before either provider", async () => {
+  const { POST } = await import("@/app/api/medicines/scan/route");
+  const fetchMock = vi.fn();
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubEnv("OPENROUTER_API_KEY", "test-only");
+  readOcr.mockReset();
+  const signedOut = scanRequest();
+  expect((await POST(signedOut)).status).toBe(401);
+  expect(signedOut.bodyUsed).toBe(false);
+
+  cookieToken = (await account("alice")).token;
+  const unsupported = await POST(scanRequest("?mode=ocr", "image/gif"));
+  expect(unsupported.status).toBe(415);
+  expect(await unsupported.json()).toMatchObject({ code: "UNSUPPORTED_IMAGE" });
+  expect((await POST(scanRequest("", "image/png"))).status).toBe(415);
+  expect((await POST(scanRequest("", "image/jpeg", new Uint8Array(2 * 1024 * 1024 + 1)))).status).toBe(413);
+  expect((await POST(scanRequest("?mode=other"))).status).toBe(400);
+  expect((await POST(scanRequest("?mode=ocr&mode=vision"))).status).toBe(400);
+  expect((await POST(scanRequest("?model=custom/not-from-settings"))).status).toBe(400);
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(readOcr).not.toHaveBeenCalled();
+});
+
+it("returns vision and OCR drafts without file writes, cabinet writes, or intake logs", async () => {
+  const { POST } = await import("@/app/api/medicines/scan/route");
+  const a = await account("alice", "openai/gpt-4o");
+  cookieToken = a.token;
+  vi.stubEnv("OPENROUTER_API_KEY", "test-only");
+  readOcr.mockReset().mockResolvedValue("Metformin\nprivate irrelevant label text");
+  const fetchMock = vi.fn<typeof fetch>(async () => Response.json({ choices: [{ message: {
+    content: JSON.stringify({
+      brandName: "Vis D3", genericName: null, category: "supplement", defaultDoseLabel: "1 softgel",
+      nutrients: [{ key: "vitaminD", amount: 25, unit: "mcg" }], notes: null, confidence: 0.9,
+    }),
+  } }] }));
+  vi.stubGlobal("fetch", fetchMock);
+  const writes = [
+    vi.spyOn(fs, "writeFile"), vi.spyOn(fs, "writeFileSync"),
+    vi.spyOn(fs, "createWriteStream"), vi.spyOn(fs.promises, "writeFile"),
+  ];
+  try {
+    const response = await POST(scanRequest());
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const body = await response.json();
+    expect(body).toMatchObject({
+      requiresConfirmation: true, source: "vision", code: "REVIEW", confidence: { level: "high", score: 0.9 },
+      draft: { brandName: "Vis D3", nutrientsPerDose: { vitaminD: 25 } },
+    });
+    expect(body).not.toHaveProperty("id");
+    expect(body.draft).not.toHaveProperty("id");
+    expect(readOcr).not.toHaveBeenCalled();
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).model).toBe("openai/gpt-4o");
+
+    const local = await POST(scanRequest("?mode=ocr"));
+    expect(local.status).toBe(200);
+    const localBody = await local.json();
+    expect(localBody).toMatchObject({
+      requiresConfirmation: true, source: "ocr", code: "REVIEW", confidence: { level: "low", score: null },
+      draft: { brandName: "Metformin", defaultDoseLabel: null, nutrientsPerDose: {}, notes: null },
+    });
+    expect(JSON.stringify(localBody)).not.toContain("private irrelevant label text");
+    expect(readOcr).toHaveBeenCalledExactlyOnceWith({ mime: "image/jpeg", bytes: packagePhoto });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    for (const write of writes) expect(write).not.toHaveBeenCalled();
+  } finally {
+    for (const write of writes) write.mockRestore();
+  }
+  expect(await fixture.db.select().from(medicines)).toEqual([]);
+  expect(await fixture.db.select().from(intakeLogs)).toEqual([]);
 });
