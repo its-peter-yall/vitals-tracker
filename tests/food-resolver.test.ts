@@ -299,3 +299,118 @@ it("authenticates local search and ranks aliases, recents and saves without cros
   expect(await (await GET(searchRequest("Alice family yogurt"))).json()).toEqual({ foods: [] });
   expect(fetch).not.toHaveBeenCalled();
 });
+
+const resolvePath = "/api/foods/resolve";
+const offHost = "world.openfoodfacts.org";
+const fdcHost = "api.nal.usda.gov";
+const aiHost = "openrouter.ai";
+const aiEnvelope = (content: unknown) => Response.json({
+  choices: [{ message: { content: JSON.stringify(content) } }],
+});
+const aiOutput = { name: "Grandma's savory pudding", defaultUnit: "g", nutrients: [
+  { key: "protein", amount: 4 }, { key: "sodium", amount: 190 },
+] };
+
+it("authenticates resolve before validation and prefers saved exact aliases, then curated", async () => {
+  const { POST } = await import("@/app/api/foods/resolve/route");
+  const { seedFoods } = await import("@/db/seed-foods");
+  const resolve = (body: unknown) => POST(postFoodRequest(resolvePath, body));
+  expect((await resolve({})).status).toBe(401);
+  expect(fetch).not.toHaveBeenCalled();
+  const { db, alice, b } = await setupFoodRoutes();
+  await seedFoods(db);
+  const [saved] = await db.insert(foods).values({
+    userId: alice.id, name: "Family flatbread", aliasesJson: ["rôti"], defaultUnit: "g",
+    nutrientsPer100Json: { sodium: 11 }, source: "manual", createdAt: fixtureTime,
+  }).returning();
+  expect((await resolve({ query: " " })).status).toBe(400);
+  expect((await resolve({ query: "roti", userId: alice.id })).status).toBe(400);
+  expect(await (await resolve({ query: " ROTI! " })).json()).toMatchObject({
+    kind: "saved", food: { id: saved.id, nutrientsPer100: { sodium: 11 } },
+  });
+  token = b.token;
+  expect(await (await resolve({ query: "roti" })).json()).toMatchObject({
+    kind: "curated", food: { name: "Whole-wheat chapati", source: "curated", estimated: false },
+  });
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("resolves OFF before USDA before OpenRouter, returns drafts and never persists a lookup", async () => {
+  const { POST } = await import("@/app/api/foods/resolve/route");
+  const { db } = await setupFoodRoutes();
+  vi.stubEnv("USDA_FDC_API_KEY", "fdc-test-key");
+  vi.stubEnv("OPENROUTER_API_KEY", "ai-test-key");
+  const fetchMock = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(offSearch(offProduct))
+    .mockResolvedValueOnce(new Response("not json", { status: 200 }))
+    .mockResolvedValueOnce(fdcSearch(fdcFood))
+    .mockResolvedValueOnce(new Response(null, { status: 429 }))
+    .mockResolvedValueOnce(fdcSearch())
+    .mockResolvedValueOnce(aiEnvelope(aiOutput));
+  vi.stubGlobal("fetch", fetchMock);
+  const resolve = (query: string) => POST(postFoodRequest(resolvePath, { query }));
+  expect(await (await resolve("cocoa drink")).json()).toMatchObject({
+    kind: "draft", draft: { provider: "open_food_facts", estimated: false },
+  });
+  expect(fetchMock.mock.calls.map(([url]) => hostOf(url))).toEqual([offHost]);
+  expect(await (await resolve("purple yam")).json()).toMatchObject({
+    kind: "draft", draft: { provider: "usda", estimated: false },
+  });
+  expect(fetchMock.mock.calls.map(([url]) => hostOf(url))).toEqual([offHost, offHost, fdcHost]);
+  const response = await resolve("savory pudding");
+  expect(response.status).toBe(200);
+  expect(response.headers.get("Cache-Control")).toBe("no-store");
+  expect(await response.json()).toEqual({
+    kind: "draft", draft: {
+      name: aiOutput.name, aliases: ["savory pudding"], defaultUnit: "g",
+      nutrientsPer100: { protein: 4, sodium: 190 },
+      provider: "openrouter", label: "Estimated", estimated: true,
+    },
+  });
+  expect(fetchMock.mock.calls.map(([url]) => hostOf(url))).toEqual([
+    offHost, offHost, fdcHost, offHost, fdcHost, aiHost,
+  ]);
+  const completion = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body));
+  expect(completion.messages.at(-1)).toEqual({ role: "user", content: '{"food":"savory pudding"}' });
+  expect(completion.response_format).toMatchObject({ type: "json_schema" });
+  expect(await db.select().from(foods)).toEqual([]);
+  expect(await db.select().from(intakeLogs)).toEqual([]);
+});
+
+it("skips missing AI and USDA keys, and rejects malformed AI nutrient drafts", async () => {
+  const { POST } = await import("@/app/api/foods/resolve/route");
+  const { db } = await setupFoodRoutes();
+  const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (url) => {
+    if (hostOf(url) === offHost) return offSearch();
+    throw new Error("Unexpected provider");
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const resolve = () => POST(postFoodRequest(resolvePath, { query: "winter grain pudding" }));
+  const noKeys = await resolve();
+  expect(noKeys.status).toBe(404);
+  expect(await noKeys.json()).toEqual({ error: "No match found. You can enter the food manually." });
+  expect(fetchMock.mock.calls.map(([url]) => hostOf(url))).toEqual([offHost]);
+
+  vi.stubEnv("OPENROUTER_API_KEY", "ai-test-key");
+  for (const nutrients of [
+    [{ key: "salt", amount: 50 }], [{ key: "sodium", amount: -1 }],
+    [{ key: "sodium", amount: "50" }], [{ key: "sodium", amount: 1 }, { key: "sodium", amount: 2 }],
+    [{ key: "totalSugars", amount: 1 }, { key: "addedSugars", amount: 2 }], [],
+  ]) {
+    fetchMock.mockImplementationOnce(async () => offSearch())
+      .mockImplementationOnce(async () => aiEnvelope({ ...aiOutput, nutrients }));
+    const invalid = await resolve();
+    expect(invalid.status).toBe(422);
+    expect(await invalid.json()).toEqual({ error: "Could not estimate this food. You can enter it manually." });
+  }
+  fetchMock.mockImplementationOnce(async () => offSearch())
+    .mockResolvedValueOnce(Response.json({ error: { message: "private provider details" } }, { status: 429 }));
+  const unavailable = await resolve();
+  expect(unavailable.status).toBe(503);
+  expect(await unavailable.json()).toEqual({
+    error: "Food estimates are unavailable right now. Try again or enter the food manually.",
+  });
+  expect(fetchMock.mock.calls.map(([url]) => hostOf(url))).not.toContain(fdcHost);
+  expect(await db.select().from(foods)).toEqual([]);
+  expect(await db.select().from(intakeLogs)).toEqual([]);
+});
