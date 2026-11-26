@@ -52,8 +52,10 @@ delegation:
 
 | Handoff ID | Role | Plan/phase scope | Prompt reference | Expected artifacts | Status | Returned evidence |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| H-P7-PLAN | planner (manual) | P7 frontend plan | Chat: manual frontend planner prompts, 2026-11-26 | `docs/vitals-tracker-v1/plan7.md` | awaiting-user | - |
+| H-P8-PLAN | planner (manual) | P8 frontend plan | Chat: manual frontend planner prompts, 2026-11-26 | `docs/vitals-tracker-v1/plan8.md` | awaiting-user | - |
 
-*(No manual handoffs issued yet. The frontend planner for P7/P8 is configured as a manual handoff, but its prerequisites (P4/P5/P6 plans or workers) are not yet met; the copyable prompt will be recorded here when ready. Pending handoffs block their dependents, not independent work.)*
+*(P7/P8 planning prerequisites are met: P4/P5/P6 plans are committed. The frontend planner is manual by user choice; no frontend planner subagent will be spawned. Pending handoffs block their dependents, not independent work. P8's worker can start once `plan8.md` is returned and verified; P7's worker additionally waits for P4/P5 workers.)*
 
 ## Workflow milestones
 
@@ -105,9 +107,9 @@ This is the research-reconciled DAG (`dag_status: research-reconciled`, research
 | **P1** | Project Scaffold, Drizzle/Turso Schema, OpenRouter Client & Dual-Chromatic Theme Foundation | R | `package.json`, `next.config.ts`, `tsconfig.json`, `vitest.config.ts`, `vitest.setup.ts`, `drizzle.config.ts`, `postcss.config.mjs`, `eslint.config.mjs`, `.env.example`, `.gitignore`, `public/manifest.json`, `public/sw.js`, `public/icons/*`, `src/db/index.ts`, `src/db/schema.ts`, `src/db/test-utils.ts`, `src/lib/env.ts`, `src/lib/openrouter/*`, `src/app/layout.tsx`, `src/app/globals.css`, `src/components/theme-provider.tsx`, `src/components/ui/*`, `tests/db-schema.test.ts` | [x] `5433c0b` | [x] Complete | 8 commits: `59fbab9`…`53eabe7`, `d1c2029` |
 | **P2** | Lightweight Auth, Persistent Sessions & User Settings | P1 | `src/lib/auth/*`, `src/app/api/auth/**`, `src/app/api/settings/route.ts`, `src/app/(auth)/login/page.tsx`, `src/app/(auth)/signup/page.tsx`, `src/app/settings/page.tsx`, `tests/auth.test.ts` | [x] `537de94` | [x] Complete | `979647d`, `3542f65`, `ba09ac6`, `301e5fa` (shared), `69993e5`, `2b5c839`, `6f37158` |
 | **P3** | Canonical Nutrient Catalog, Scaling Math & Condition Impact Engine | P1 | `src/lib/nutrients/*`, `src/lib/impact/*`, `tests/nutrients.test.ts`, `tests/impact-engine.test.ts` | [x] `04975e6` | [x] Complete | `dacffe6`, `4afe41d`, `7ca0438`, `3d1d602`, `301e5fa` (shared) |
-| **P4** | Curated Food Catalog & Hybrid Food Resolver API | P2, P3 | `src/db/seed-foods.ts`, `src/lib/foods/*`, `src/app/api/foods/**`, `tests/food-resolver.test.ts` | [#] In progress | [ ] Pending | - |
-| **P5** | Curated Medicines, OpenRouter Vision Scanner, OCR Fallback & "My Medicines" API | P2, P3 | `src/db/seed-medicines.ts`, `src/lib/medicines/*`, `src/app/api/medicines/**`, `tests/medicine-recognizer.test.ts`, `tests/medicines-api.test.ts` | [#] In progress | [ ] Pending | - |
-| **P6** | Trackers CRUD, Intake Logs, Daily Summary & Analytics API | P2, P3 | `src/lib/trackers/*`, `src/lib/analytics/*`, `src/app/api/trackers/**`, `tests/trackers-api.test.ts`, `tests/analytics.test.ts` | [#] In progress | [ ] Pending | - |
+| **P4** | Curated Food Catalog & Hybrid Food Resolver API | P2, P3 | `src/db/seed-foods.ts`, `src/lib/foods/*`, `src/app/api/foods/**`, `tests/food-resolver.test.ts` | [x] `74d09bd` | [ ] Pending (queued) | - |
+| **P5** | Curated Medicines, OpenRouter Vision Scanner, OCR Fallback & "My Medicines" API | P2, P3 | `src/db/seed-medicines.ts`, `src/lib/medicines/*`, `src/app/api/medicines/**`, `tests/medicine-recognizer.test.ts`, `tests/medicines-api.test.ts` | [x] `03f32c0` | [ ] Pending (queued) | - |
+| **P6** | Trackers CRUD, Intake Logs, Daily Summary & Analytics API | P2, P3 | `src/lib/trackers/*`, `src/lib/analytics/*`, `src/app/api/trackers/**`, `tests/trackers-api.test.ts`, `tests/analytics.test.ts` | [x] `87393e9` | [x] Complete | `7ee795d`, `849eca1`, `0db6346`, `69199b9`, `a372e4a`, `cf47f91`, `44f0a1b`, `27890dd` |
 | **P7** | Trackers Home, Guided Wizard, Daily View, Food/Medicine Logging & Confirm Card UI | P4, P5, P6 | `src/app/page.tsx`, `src/app/trackers/new/page.tsx`, `src/app/trackers/[id]/layout.tsx`, `src/app/trackers/[id]/page.tsx`, `src/components/wizard/*`, `src/components/trackers/*`, `src/components/logging/*`, `tests/tracker-ui.test.tsx` | [ ] Pending | [ ] Pending | - |
 | **P8** | Per-Tracker Analytics Page UI (`7d` / `30d` Dual-Chromatic Charts & Insights) | P6 | `src/app/trackers/[id]/analytics/page.tsx`, `src/components/analytics/*`, `tests/analytics-ui.test.tsx` | [ ] Pending | [ ] Pending | - |
 | **P9** | Unified Seed Runner, E2E Integration Tests, Setup Docs & Full Verification | P7, P8 | `src/db/seed.ts`, `tests/e2e-flows.test.ts`, `README.md` | [ ] Pending | [ ] Pending | - |
@@ -207,6 +209,7 @@ flowchart TD
 - `src/app/api/foods/search/route.ts`, `src/app/api/foods/resolve/route.ts`, `src/app/api/foods/route.ts`
 - `tests/food-resolver.test.ts`  
 **Scope:** Curate ~100+ everyday regional home-cooked & global staple foods with common aliases (e.g., *roti/chapati*, *curd/dahi*, *idli*, *dal*, *milk*, *banana*, *rice*, *egg*, *spinach/palak*) and per-100g/ml profiles. Implement `GET /api/foods/search` (user saved/recent + local alias match), `POST /api/foods/resolve` (open food DB lookup → OpenRouter AI fallback returning *Estimated* draft validated by `zod`), and `POST /api/foods` (save/cache user-confirmed food scoped by `userId`).  
+**Plan contract notes (`plan4.md`, `74d09bd`):** 129 curated profiles; authenticated local-only search via `GET /api/foods/search`. `POST /api/foods/resolve` checks saved and curated foods, then Open Food Facts, optional USDA, then OpenRouter; AI results are labeled **Estimated**; resolve never saves or logs. `POST /api/foods` caches explicit confirmations per user, normalized name, and unit; the first confirmation wins; intake logging remains separate. Open Food Facts limits are enforced per process; deployments sharing an outbound IP need a shared limiter.  
 **Exit gate:** `npx vitest run tests/food-resolver.test.ts` passes with mocked external/OpenRouter fixtures, confirming alias matching, waterfall order, Zod rejection of malformed AI payloads, and automatic confirmed-food caching.
 
 ### P5 — Curated Medicines, OpenRouter Vision Scanner, OCR Fallback & "My Medicines" API
@@ -217,6 +220,7 @@ flowchart TD
 - `src/app/api/medicines/route.ts`, `src/app/api/medicines/[id]/route.ts`, `src/app/api/medicines/scan/route.ts`
 - `tests/medicine-recognizer.test.ts`, `tests/medicines-api.test.ts`  
 **Scope:** Implement strict image validation (`image/jpeg`, `image/png`, `image/webp`, ≤ 2 MB, processed strictly in-memory with zero disk writes), OpenRouter Vision structured extraction (brand/generic name, `supplement` | `prescription` | `both`, per-dose vitamin/mineral map, plain-language food/nutrient notes, confidence level), optional Tesseract.js OCR fallback + catalog matching, never auto-logging scan results, and authenticated CRUD for the user's **My Medicines** cabinet (`GET/POST /api/medicines`, `PATCH/DELETE /api/medicines/[id]`).  
+**Plan contract notes (`plan5.md`, `03f32c0`):** scan is authenticated and in-memory; it returns a draft or recovery actions with `requiresConfirmation: true` and never saves a medicine or logs intake. Confidence is high ≥0.85, medium ≥0.60, otherwise low; incomplete drafts are capped at low. OCR is an explicit `?mode=ocr` retry through a pluggable Tesseract provider with no disk cache; catalog matches are low confidence and never supply a dose or nutrient amount. Cold-start OCR failure falls back to manual entry.  
 **Exit gate:** `npx vitest run tests/medicine-recognizer.test.ts tests/medicines-api.test.ts` passes, verifying MIME/size rejection, valid/partial/low-confidence/malformed OpenRouter fixtures, OCR fallback behavior, and strict user-isolated "My Medicines" CRUD.
 
 ### P6 — Trackers CRUD, Intake Logs, Daily Summary & Analytics API
@@ -230,6 +234,8 @@ flowchart TD
 - `tests/trackers-api.test.ts`, `tests/analytics.test.ts`  
 **Scope:** Implement tracker creation (selected vitamins/minerals/essential nutrients + targets + health flags), editing/deletion, intake logging (`food` by `g`/`ml` and `medicine` by `dose`, storing full immutable `computedNutrientsJson` and local `logDate`), quantity editing & Undo deletion, daily summary endpoint (filtering progress cards to `tracker_nutrients` while evaluating `impact-engine` across full daily totals), and `7d`/`30d` analytics rollup endpoint (daily series, average completion, Needs Attention vs. On Track, caution days, medicine adherence). Strictly enforce `userId` ownership on every route.  
 **P6 integration risk from P3:** `tracker_nutrients` currently stores `dailyTarget` without explicit-vs-default provenance. P6 must preserve that distinction (an additive schema flag such as `isCustomTarget`/`targetSource`, or an equivalent API/UI contract) so untouched catalog defaults never override the impact engine's caution thresholds; comparing values alone misses explicit targets equal to defaults. Any additive schema change is an exception to P1 file ownership and must be backward-compatible, tested, and noted in the P6 plan.  
+**Plan contract notes (`plan6.md`, `87393e9`):** owner-scoped tracker CRUD; local-date intake logs; quantity edits use historical snapshots; Undo is a deletion. Daily summaries evaluate all nutrients for cautions while displaying only selected ones. Target provenance is an additive `isCustomTarget` flag defaulting to `false` for legacy rows; untouched defaults never override caution thresholds, while explicit targets can even when they equal catalog defaults. Analytics use inclusive 7/30-day windows, count empty days in capped goal averages, exclude upper limits from completion, count each caution date once, and measure medicine consistency by distinct logged days.  
+**Worker result:** 17/17 tracker/analytics tests, typecheck pass, `npm test` 64/64, build/lint pass. The additive `isCustomTarget` schema column and legacy SQL are the only schema change.  
 **Exit gate:** `npx vitest run tests/trackers-api.test.ts tests/analytics.test.ts` passes, verifying cross-user isolation, local-date bucketing, food + supplement aggregation, Undo deletion, condition alert generation, and `7d`/`30d` analytics math.
 
 ### P7 — Trackers Home, Guided Wizard, Daily View, Food/Medicine Logging & Confirm Card UI
@@ -309,18 +315,19 @@ flowchart TD
 | P1 implementation (scaffold, schema, OpenRouter, theme) | Complete; gate verified | `59fbab9`, `3c55468`, `872d32e`, `270973f`, `78202f6`, `4108f70`, `53eabe7`, `d1c2029` |
 | P2 implementation (auth, sessions, settings) | Complete; gate verified | `979647d`, `3542f65`, `ba09ac6`, `301e5fa` (shared), `69993e5`, `2b5c839`, `6f37158` |
 | P3 implementation (nutrients, calculator, impact engine) | Complete; gate verified | `dacffe6`, `4afe41d`, `7ca0438`, `3d1d602`, `301e5fa` (shared) |
+| P6 implementation (trackers, logs, summary, analytics) | Complete; gate verified | `7ee795d`, `849eca1`, `0db6346`, `69199b9`, `a372e4a`, `cf47f91`, `44f0a1b`, `27890dd` |
 | `docs/vitals-tracker-v1/plan2.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `537de94` |
 | `docs/vitals-tracker-v1/plan3.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `04975e6` |
-| `docs/vitals-tracker-v1/plan4.md` | In progress (`openai/gpt-6.2-sol#xhigh`) | - |
-| `docs/vitals-tracker-v1/plan5.md` | In progress (`openai/gpt-6.2-sol#xhigh`) | - |
-| `docs/vitals-tracker-v1/plan6.md` | In progress (`openai/gpt-6.2-sol#xhigh`) | - |
+| `docs/vitals-tracker-v1/plan4.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `74d09bd` |
+| `docs/vitals-tracker-v1/plan5.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `03f32c0` |
+| `docs/vitals-tracker-v1/plan6.md` | Complete (`openai/gpt-6.2-sol#xhigh`) | `87393e9` |
 | `docs/vitals-tracker-v1/plan7.md` – `plan9.md` | Pending | - |
 | `docs/vitals-tracker-v1/review.md` | Skipped (`--skip review`) | - |
 | `docs/vitals-tracker-v1/final_report.md` | Pending | - |
 
 ## Current gate and resume procedure
 
-**CURRENT GATE: P4/P5/P6 PLANNING IN PROGRESS — PARALLEL BACKEND PLANNERS (`openai/gpt-6.2-sol#xhigh`; P4 `ses_de8d40b6affeyhfOMw7b2tJDTK`, P5 `ses_de8d40b69ffeFc8juK2BLmf7i8`, P6 `ses_de8d40b68ffeeemdcc3GWdGlXb`)**
+**CURRENT GATE: P4 WORKER READY; P5 QUEUED; MANUAL P7/P8 PLANNER HANDOFFS AWAITING USER**
 
 Resume steps:
 1. [x] Read `docs/vitals-tracker-v1/state.md`, `docs/vitals-tracker-v1/goal.md`, and `git status`; preserve any user edits.
